@@ -5,6 +5,7 @@ import 'package:http/http.dart' as http;
 
 import 'api_config.dart';
 import 'api_exception.dart';
+import 'network_config.dart';
 
 enum ApiMethod { get, post, put, delete, patch, head }
 
@@ -43,8 +44,15 @@ class ApiClient {
     updateConfig(_config.copyWith(defaultHeaders: headers));
   }
 
-  void setDefaultCookies(Map<String, String> cookies) {
-    updateConfig(_config.copyWith(defaultCookies: cookies));
+  void setDefaultCookies(Map<String, String> cookies, {bool merge = true}) {
+    if (!merge) {
+      updateConfig(_config.copyWith(defaultCookies: cookies));
+      return;
+    }
+
+    updateConfig(
+      _config.copyWith(defaultCookies: {..._config.defaultCookies, ...cookies}),
+    );
   }
 
   Future<ApiResponse<T>> send<T>({
@@ -93,6 +101,30 @@ class ApiClient {
       headers: response.headers,
       uri: uri,
       rawData: decodedBody,
+    );
+  }
+
+  Future<ApiResponse<T>> sendToEndpoint<T>({
+    required ApiMethod method,
+    required ApiEndpoint endpoint,
+    Map<String, String>? headers,
+    Map<String, String>? queryParameters,
+    Map<String, String>? cookies,
+    Object? body,
+    Duration? timeout,
+    ResponseParser<T>? parser,
+    bool Function(int statusCode)? validateStatus,
+  }) {
+    return send(
+      method: method,
+      path: endpoint.path,
+      headers: headers,
+      queryParameters: queryParameters,
+      cookies: cookies,
+      body: body,
+      timeout: timeout,
+      parser: parser,
+      validateStatus: validateStatus,
     );
   }
 
@@ -145,6 +177,11 @@ class ApiClient {
     }
 
     if (body is Map || body is Iterable) {
+      final contentType = _resolveContentType(headers);
+      if (body is Map && _isFormUrlEncoded(contentType)) {
+        return _encodeFormBody(body);
+      }
+
       headers.putIfAbsent('Content-Type', () => 'application/json');
       return jsonEncode(body);
     }
@@ -207,12 +244,40 @@ class ApiClient {
     );
     return entries.join('; ');
   }
+
+  String? _resolveContentType(Map<String, String> headers) {
+    for (final entry in headers.entries) {
+      if (entry.key.toLowerCase() == 'content-type') {
+        return entry.value;
+      }
+    }
+    return null;
+  }
+
+  bool _isFormUrlEncoded(String? contentType) {
+    if (contentType == null) {
+      return false;
+    }
+    return contentType.toLowerCase().contains(
+      'application/x-www-form-urlencoded',
+    );
+  }
+
+  String _encodeFormBody(Map<dynamic, dynamic> body) {
+    return body.entries
+        .map((entry) {
+          final key = Uri.encodeQueryComponent(entry.key.toString());
+          final value = Uri.encodeQueryComponent(entry.value?.toString() ?? '');
+          return '$key=$value';
+        })
+        .join('&');
+  }
 }
 
 /// Global API client. Update the base URL and defaults to match your backend.
 final apiClient = ApiClient(
   config: ApiConfig(
-    baseUrl: 'https://frappe.technicalshree.in/',
+    baseUrl: NetworkConfig.baseUrl,
     defaultHeaders: const {'Accept': 'application/json'},
   ),
 );

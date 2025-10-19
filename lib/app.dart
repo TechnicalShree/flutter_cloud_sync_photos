@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 
 import 'core/constants/app_strings.dart';
 import 'core/theme/app_theme.dart';
+import 'features/auth/presentation/pages/login_page.dart';
+import 'features/auth/presentation/widgets/auth_gate.dart';
 import 'features/counter/presentation/pages/counter_page.dart';
 
 class CloudSyncPhotosApp extends StatelessWidget {
@@ -15,7 +17,11 @@ class CloudSyncPhotosApp extends StatelessWidget {
       darkTheme: AppTheme.dark,
       themeMode: ThemeMode.system,
       debugShowCheckedModeBanner: false,
-      routes: {CounterPage.routeName: (_) => const CounterPage()},
+      home: const AuthGate(),
+      routes: {
+        LoginPage.routeName: (_) => const LoginPage(),
+        CounterPage.routeName: (_) => const CounterPage(),
+      },
     );
   }
 }

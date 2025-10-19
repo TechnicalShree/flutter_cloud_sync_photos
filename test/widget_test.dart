@@ -8,12 +8,12 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:flutter_cloud_sync_photos/app.dart';
+import 'package:flutter_cloud_sync_photos/features/counter/presentation/pages/counter_page.dart';
 
 void main() {
   testWidgets('Counter increments smoke test', (WidgetTester tester) async {
     // Build our app and trigger a frame.
-    await tester.pumpWidget(const CloudSyncPhotosApp());
+    await tester.pumpWidget(const MaterialApp(home: CounterPage()));
 
     // Verify that our counter starts at 0.
     expect(find.text('0'), findsOneWidget);
