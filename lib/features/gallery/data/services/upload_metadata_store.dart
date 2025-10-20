@@ -70,6 +70,11 @@ class UploadMetadataStore {
     await prefs.setString(_storageKey, jsonEncode(metadata));
   }
 
+  Future<void> clearAll() async {
+    final prefs = await _prefsFuture;
+    await prefs.remove(_storageKey);
+  }
+
   Map<String, String> _decode(String stored) {
     final dynamic decoded = jsonDecode(stored);
     if (decoded is Map) {

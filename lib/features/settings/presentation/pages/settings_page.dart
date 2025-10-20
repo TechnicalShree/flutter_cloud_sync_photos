@@ -4,6 +4,7 @@ import '../../../auth/data/services/auth_service.dart';
 import '../../../auth/domain/models/user_details.dart';
 import '../../../auth/presentation/pages/login_page.dart';
 import '../../data/upload_preferences_store.dart';
+import '../../data/settings_actions.dart';
 
 class SettingsPage extends StatefulWidget {
   const SettingsPage({super.key});
@@ -17,6 +18,7 @@ class SettingsPage extends StatefulWidget {
 class _SettingsPageState extends State<SettingsPage> {
   final AuthService _authService = globalAuthService;
   final UploadPreferencesStore _preferencesStore = uploadPreferencesStore;
+  final SettingsActions _actions = settingsActions;
 
   UserDetails? _userDetails;
   bool _loadingUser = true;
@@ -24,6 +26,7 @@ class _SettingsPageState extends State<SettingsPage> {
   bool _isPrivateUploads = true;
   bool _optimizeUploads = false;
   bool _processingLogout = false;
+  bool _resettingMetadata = false;
 
   @override
   void initState() {
@@ -107,6 +110,71 @@ class _SettingsPageState extends State<SettingsPage> {
     Navigator.of(
       context,
     ).pushNamedAndRemoveUntil(LoginPage.routeName, (_) => false);
+  }
+
+  Future<void> _handleResetMetadata() async {
+    if (_resettingMetadata) {
+      return;
+    }
+
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) {
+        final theme = Theme.of(context);
+        return AlertDialog(
+          title: const Text('Reset upload metadata?'),
+          content: const Text(
+            'This clears the list of photos marked as synced. You can re-upload any photo afterwards.',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(false),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              style: FilledButton.styleFrom(
+                backgroundColor: theme.colorScheme.error,
+                foregroundColor: theme.colorScheme.onError,
+              ),
+              onPressed: () => Navigator.of(context).pop(true),
+              child: const Text('Reset'),
+            ),
+          ],
+        );
+      },
+    );
+
+    if (confirmed != true || !mounted) {
+      return;
+    }
+
+    setState(() {
+      _resettingMetadata = true;
+    });
+
+    final messenger = ScaffoldMessenger.of(context);
+    messenger.hideCurrentSnackBar();
+    messenger.showSnackBar(
+      const SnackBar(content: Text('Clearing synced photo records...')),
+    );
+
+    try {
+      await _actions.resetUploadMetadata();
+      if (!mounted) {
+        return;
+      }
+
+      messenger.hideCurrentSnackBar();
+      messenger.showSnackBar(
+        const SnackBar(content: Text('Upload metadata cleared')),
+      );
+    } finally {
+      if (mounted) {
+        setState(() {
+          _resettingMetadata = false;
+        });
+      }
+    }
   }
 
   @override
@@ -238,6 +306,25 @@ class _SettingsPageState extends State<SettingsPage> {
               style: theme.textTheme.bodyMedium?.copyWith(
                 color: theme.colorScheme.onSurfaceVariant,
               ),
+            ),
+          ),
+          const Divider(height: 1),
+          ListTile(
+            contentPadding: EdgeInsets.zero,
+            title: const Text('Reset upload metadata'),
+            subtitle: const Text(
+              'Clears synced photo markers so uploads can run again',
+            ),
+            trailing: ElevatedButton.icon(
+              onPressed: _resettingMetadata ? null : _handleResetMetadata,
+              icon: _resettingMetadata
+                  ? const SizedBox(
+                      width: 16,
+                      height: 16,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : const Icon(Icons.restart_alt),
+              label: Text(_resettingMetadata ? 'Resetting...' : 'Reset'),
             ),
           ),
         ],
