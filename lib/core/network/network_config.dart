@@ -1,5 +1,6 @@
 class NetworkConfig {
-  static const String baseUrl = 'https://frappe.technicalshree.in/';
+  // static const String baseUrl = 'https://frappe.technicalshree.in/';
+  static const String baseUrl = 'https://backup.technicalshree.in/';
 }
 
 enum ApiEndpoint {

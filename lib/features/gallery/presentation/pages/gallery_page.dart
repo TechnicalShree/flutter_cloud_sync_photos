@@ -1,16 +1,12 @@
 import 'dart:async';
-import 'dart:typed_data';
 import 'dart:ui';
 
 import 'package:flutter/material.dart';
-import 'package:flutter_cloud_sync_photos/core/network/api_exception.dart';
 import 'package:photo_manager/photo_manager.dart';
 import 'package:photo_manager_image_provider/photo_manager_image_provider.dart';
 
-import '../../../auth/data/models/photo_media.dart';
-import '../../../auth/data/services/auth_service.dart';
 import '../../data/services/upload_metadata_store.dart';
-import '../../../settings/data/upload_preferences_store.dart';
+import '../../data/services/gallery_upload_queue.dart';
 import '../pages/photo_detail_page.dart';
 import '../widgets/gallery_empty_state.dart';
 import '../widgets/gallery_loading_state.dart';
@@ -32,12 +28,14 @@ class _GalleryPageState extends State<GalleryPage> {
   bool _hasPermission = false;
   bool _isLoadingMore = false;
   bool _hasMore = true;
-  bool _isUploading = false;
   bool _selectionMode = false;
 
   final UploadMetadataStore _metadataStore = UploadMetadataStore();
-  final UploadPreferencesStore _uploadPreferences = uploadPreferencesStore;
   final Set<String> _selectedAssetIds = <String>{};
+  late final GalleryUploadQueue _uploadQueue;
+  Set<String> _uploadingAssetIds = const <String>{};
+  bool _hasActiveUploads = false;
+  VoidCallback? _uploadQueueListener;
 
   List<AssetEntity> _assets = const <AssetEntity>[];
   List<GallerySection> _sections = const <GallerySection>[];
@@ -50,12 +48,20 @@ class _GalleryPageState extends State<GalleryPage> {
   @override
   void initState() {
     super.initState();
+    _uploadQueue = galleryUploadQueue;
+    _uploadQueueListener = _handleUploadQueueChange;
+    _uploadQueue.addListener(_uploadQueueListener!);
+    _syncUploadState();
     _scrollController = ScrollController()..addListener(_onScroll);
     _initializeGallery(reset: true);
   }
 
   @override
   void dispose() {
+    if (_uploadQueueListener != null) {
+      _uploadQueue.removeListener(_uploadQueueListener!);
+      _uploadQueueListener = null;
+    }
     _scrollController.removeListener(_onScroll);
     _scrollController.dispose();
     super.dispose();
@@ -123,6 +129,28 @@ class _GalleryPageState extends State<GalleryPage> {
     }
 
     await _fetchAssets(reset: reset);
+  }
+
+  void _handleUploadQueueChange() {
+    if (!mounted) {
+      return;
+    }
+    _syncUploadState(notify: true);
+  }
+
+  void _syncUploadState({bool notify = false}) {
+    final uploadingIds = _uploadQueue.activeAssetIds.toSet();
+    final hasActive = _uploadQueue.hasActiveUploads;
+
+    if (notify) {
+      setState(() {
+        _uploadingAssetIds = uploadingIds;
+        _hasActiveUploads = hasActive;
+      });
+    } else {
+      _uploadingAssetIds = uploadingIds;
+      _hasActiveUploads = hasActive;
+    }
   }
 
   Future<void> _fetchAssets({required bool reset}) async {
@@ -228,6 +256,15 @@ class _GalleryPageState extends State<GalleryPage> {
   Future<void> _toggleSelection(AssetEntity asset) async {
     final id = asset.id;
 
+    if (_uploadingAssetIds.contains(id)) {
+      final messenger = ScaffoldMessenger.of(context);
+      messenger.hideCurrentSnackBar();
+      messenger.showSnackBar(
+        const SnackBar(content: Text('Upload in progress')),
+      );
+      return;
+    }
+
     final isAlreadySelected = _selectedAssetIds.contains(id);
     if (!isAlreadySelected) {
       final alreadyUploaded = await _metadataStore.isUploaded(id);
@@ -289,53 +326,24 @@ class _GalleryPageState extends State<GalleryPage> {
   }
 
   Future<void> _uploadAsset(AssetEntity asset) async {
-    if (_isUploading) {
+    final messenger = ScaffoldMessenger.of(context);
+    final summary = await _uploadQueue.enqueueAssets(
+      [asset],
+      fallbackAlbumName: _assetPath?.name,
+    );
+
+    if (!mounted) {
       return;
     }
 
-    final messenger = ScaffoldMessenger.of(context);
-    final preferences = await _uploadPreferences.load();
-
-    setState(() {
-      _isUploading = true;
-    });
-
-    try {
-      final alreadyUploaded = await _metadataStore.isUploaded(asset.id);
-      if (alreadyUploaded) {
-        messenger.hideCurrentSnackBar();
-        messenger.showSnackBar(
-          const SnackBar(content: Text('Photo already uploaded')),
-        );
-        return;
-      }
-
-      messenger.hideCurrentSnackBar();
-      messenger.showSnackBar(
-        const SnackBar(content: Text('Uploading photo...')),
-      );
-
-      await _performUpload(asset, preferences: preferences);
-
-      messenger.hideCurrentSnackBar();
-      messenger.showSnackBar(const SnackBar(content: Text('Upload complete')));
-    } on ApiException catch (error) {
-      messenger.hideCurrentSnackBar();
-      messenger.showSnackBar(SnackBar(content: Text(error.message)));
-    } catch (_) {
-      messenger.hideCurrentSnackBar();
-      messenger.showSnackBar(const SnackBar(content: Text('Upload failed')));
-    } finally {
-      if (mounted) {
-        setState(() {
-          _isUploading = false;
-        });
-      }
-    }
+    messenger.hideCurrentSnackBar();
+    messenger.showSnackBar(
+      SnackBar(content: Text(_buildEnqueueMessage(summary))),
+    );
   }
 
   Future<void> _uploadSelectedAssets() async {
-    if (_selectedAssetIds.isEmpty || _isUploading) {
+    if (_selectedAssetIds.isEmpty) {
       return;
     }
 
@@ -345,138 +353,57 @@ class _GalleryPageState extends State<GalleryPage> {
       return;
     }
 
-    final messenger = ScaffoldMessenger.of(context);
-    setState(() {
-      _isUploading = true;
-    });
+    final summary = await _uploadQueue.enqueueAssets(
+      assets,
+      fallbackAlbumName: _assetPath?.name,
+    );
 
-    final preferences = await _uploadPreferences.load();
+    if (!mounted) {
+      return;
+    }
+
+    final messenger = ScaffoldMessenger.of(context);
     messenger.hideCurrentSnackBar();
     messenger.showSnackBar(
-      SnackBar(
-        content: Text(
-          assets.length == 1
-              ? 'Uploading 1 photo...'
-              : 'Uploading ${assets.length} photos...',
-        ),
-      ),
+      SnackBar(content: Text(_buildEnqueueMessage(summary))),
     );
 
-    int uploadedCount = 0;
-    int skippedCount = 0;
-    int failedCount = 0;
-    String? firstErrorMessage;
-
-    try {
-      for (final asset in assets) {
-        final alreadyUploaded = await _metadataStore.isUploaded(asset.id);
-        if (alreadyUploaded) {
-          skippedCount += 1;
-          continue;
-        }
-
-        try {
-          await _performUpload(asset, preferences: preferences);
-          uploadedCount += 1;
-        } on ApiException catch (error) {
-          failedCount += 1;
-          firstErrorMessage ??= error.message;
-        } catch (_) {
-          failedCount += 1;
-          firstErrorMessage ??= 'Upload failed';
-        }
-      }
-
-      messenger.hideCurrentSnackBar();
-      final message = _buildBulkResultMessage(
-        total: assets.length,
-        uploaded: uploadedCount,
-        skipped: skippedCount,
-        failed: failedCount,
-      );
-      messenger.showSnackBar(SnackBar(content: Text(message)));
-
-      if (firstErrorMessage != null && failedCount > 0) {
-        messenger.showSnackBar(SnackBar(content: Text(firstErrorMessage)));
-      }
-    } finally {
-      if (mounted) {
-        setState(() {
-          _isUploading = false;
-          _selectedAssetIds.clear();
-          _selectionMode = false;
-        });
-      }
-    }
+    setState(() {
+      _selectedAssetIds.clear();
+      _selectionMode = false;
+    });
   }
 
-  Future<void> _performUpload(
-    AssetEntity asset, {
-    UploadPreferences? preferences,
-  }) async {
-    final prefs = preferences ?? await _uploadPreferences.load();
-    final bytes = await _loadAssetBytes(asset);
-
-    final rawTitle = await asset.titleAsync;
-    final trimmed = rawTitle.trim();
-    final sanitizedName = trimmed.isEmpty ? 'photo_${asset.id}.jpg' : trimmed;
-
-    final folder = globalAuthService.buildFolderPath(
-      PhotoMedia(bucketDisplayName: _deriveBucketName(asset)),
-    );
-
-    final response = await globalAuthService.uploadFile(
-      fileName: sanitizedName,
-      bytes: bytes,
-      isPrivate: prefs.isPrivate,
-      folder: folder,
-      optimize: prefs.optimize,
-    );
-
-    final contentHash = _findContentHash(response);
-    if (contentHash != null) {
-      await _metadataStore.saveContentHash(asset.id, contentHash);
-    }
-  }
-
-  Future<Uint8List> _loadAssetBytes(AssetEntity asset) async {
-    Uint8List? bytes = await asset.originBytes;
-    bytes ??= await asset.thumbnailDataWithSize(
-      const ThumbnailSize.square(1200),
-    );
-
-    if (bytes == null) {
-      throw ApiException(message: 'Unable to read photo data');
+  String _buildEnqueueMessage(UploadEnqueueSummary summary) {
+    if (summary.totalRequested <= 1) {
+      if (summary.enqueued == 1) {
+        return 'Upload started in background';
+      }
+      if (summary.duplicates > 0) {
+        return 'Upload already in progress';
+      }
+      if (summary.alreadyUploaded > 0) {
+        return 'Photo already uploaded';
+      }
+      return 'Nothing to upload';
     }
 
-    return bytes;
-  }
-
-  String _buildBulkResultMessage({
-    required int total,
-    required int uploaded,
-    required int skipped,
-    required int failed,
-  }) {
     final parts = <String>[];
 
-    if (uploaded > 0) {
-      parts.add('Uploaded $uploaded ${uploaded == 1 ? 'photo' : 'photos'}');
+    if (summary.enqueued > 0) {
+      final label = summary.enqueued == 1 ? 'upload' : 'uploads';
+      parts.add('Queued ${summary.enqueued} $label');
     }
-    if (skipped > 0) {
-      parts.add('$skipped already synced');
+    if (summary.duplicates > 0) {
+      final label = summary.duplicates == 1 ? 'item' : 'items';
+      parts.add('${summary.duplicates} $label already uploading');
     }
-    if (failed > 0) {
-      parts.add('$failed failed');
-    }
-
-    if (parts.isEmpty) {
-      return total == 0
-          ? 'No photos selected for upload'
-          : 'No photos were uploaded';
+    if (summary.alreadyUploaded > 0) {
+      final label = summary.alreadyUploaded == 1 ? 'item' : 'items';
+      parts.add('${summary.alreadyUploaded} $label already synced');
     }
 
-    return parts.join(', ');
+    return parts.isEmpty ? 'No photos queued' : parts.join(', ');
   }
 
   @override
@@ -548,9 +475,11 @@ class _GalleryPageState extends State<GalleryPage> {
                                 child: Row(
                                   children: [
                                     const Spacer(),
-                                    if (_isUploading)
-                                      const _GalleryGlassProgressIndicator()
-                                    else if (_selectionMode) ...[
+                                    if (_hasActiveUploads) ...[
+                                      const _GalleryGlassProgressIndicator(),
+                                      const SizedBox(width: 12),
+                                    ],
+                                    if (_selectionMode) ...[
                                       _GalleryGlassIconButton(
                                         icon: Icons.cloud_upload,
                                         tooltip: 'Upload selected',
@@ -634,6 +563,7 @@ class _GalleryPageState extends State<GalleryPage> {
       metadataStore: _metadataStore,
       selectionMode: _selectionMode,
       selectedAssetIds: _selectedAssetIds,
+      uploadingAssetIds: _uploadingAssetIds,
       hideSelectionIndicatorAssetIds: _selectionMode && _assets.isNotEmpty
           ? {_assets.first.id}
           : const <String>{},
@@ -694,55 +624,6 @@ class _GalleryPageState extends State<GalleryPage> {
 
   bool _isSameDay(DateTime a, DateTime b) {
     return a.year == b.year && a.month == b.month && a.day == b.day;
-  }
-
-  String? _deriveBucketName(AssetEntity asset) {
-    final relativePath = asset.relativePath?.trim();
-    if (relativePath != null && relativePath.isNotEmpty) {
-      final sanitized = relativePath.replaceAll(RegExp(r'[\\/]+$'), '');
-      final segments = sanitized.split(RegExp(r'[\\/]'));
-      if (segments.isNotEmpty) {
-        final last = segments.last.trim();
-        if (last.isNotEmpty) {
-          return last;
-        }
-      }
-      return sanitized;
-    }
-
-    final pathName = _assetPath?.name;
-    if (pathName != null && pathName.trim().isNotEmpty) {
-      return pathName.trim();
-    }
-
-    return null;
-  }
-
-  String? _findContentHash(Map<String, dynamic> response) {
-    for (final entry in response.entries) {
-      final dynamic value = entry.value;
-      if (entry.key.toLowerCase() == 'content_hash' &&
-          value is String &&
-          value.isNotEmpty) {
-        return value;
-      }
-      if (value is Map<String, dynamic>) {
-        final nested = _findContentHash(value);
-        if (nested != null && nested.isNotEmpty) {
-          return nested;
-        }
-      } else if (value is Iterable) {
-        for (final element in value) {
-          if (element is Map<String, dynamic>) {
-            final nested = _findContentHash(element);
-            if (nested != null && nested.isNotEmpty) {
-              return nested;
-            }
-          }
-        }
-      }
-    }
-    return null;
   }
 
   String _formatDate(DateTime date) {

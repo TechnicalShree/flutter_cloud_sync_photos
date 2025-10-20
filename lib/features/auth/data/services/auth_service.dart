@@ -225,19 +225,13 @@ class AuthService {
   }
 
   String buildFolderPath(PhotoMedia photo) {
-    final userSegment = _userDetails?.name?.trim().isNotEmpty == true
-        ? _userDetails!.name!.trim()
-        : (_userDetails?.user?.trim().isNotEmpty == true
-              ? _userDetails!.user!.trim()
-              : 'anonymous');
-
     final albumRaw = photo.bucketDisplayName?.trim() ?? '';
     final albumSegment = albumRaw
         .replaceAll('/', '_')
         .replaceAll('\\', '_')
         .ifEmpty('Unsorted');
 
-    return 'Home/$userSegment/$albumSegment';
+    return albumSegment;
   }
 }
 

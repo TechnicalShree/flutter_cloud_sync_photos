@@ -13,6 +13,7 @@ class GallerySliverGrid extends StatelessWidget {
     required this.metadataStore,
     this.selectionMode = false,
     this.selectedAssetIds = const <String>{},
+    this.uploadingAssetIds = const <String>{},
     this.hideSelectionIndicatorAssetIds = const <String>{},
     this.onAssetTap,
     this.onAssetLongPress,
@@ -23,6 +24,7 @@ class GallerySliverGrid extends StatelessWidget {
   final UploadMetadataStore metadataStore;
   final bool selectionMode;
   final Set<String> selectedAssetIds;
+  final Set<String> uploadingAssetIds;
   final Set<String> hideSelectionIndicatorAssetIds;
   final ValueChanged<AssetEntity>? onAssetTap;
   final ValueChanged<AssetEntity>? onAssetLongPress;
@@ -47,6 +49,7 @@ class GallerySliverGrid extends StatelessWidget {
           metadataStore: metadataStore,
           selectionMode: selectionMode,
           isSelected: selectedAssetIds.contains(asset.id),
+          isUploading: uploadingAssetIds.contains(asset.id),
           showSelectionIndicator: !hideSelectionIndicatorAssetIds.contains(
             asset.id,
           ),
@@ -69,6 +72,7 @@ class GalleryTile extends StatelessWidget {
     required this.metadataStore,
     this.selectionMode = false,
     this.isSelected = false,
+    this.isUploading = false,
     this.showSelectionIndicator = true,
     this.onTap,
     this.onLongPress,
@@ -80,6 +84,7 @@ class GalleryTile extends StatelessWidget {
   final UploadMetadataStore metadataStore;
   final bool selectionMode;
   final bool isSelected;
+  final bool isUploading;
   final bool showSelectionIndicator;
   final VoidCallback? onTap;
   final VoidCallback? onLongPress;
@@ -91,9 +96,14 @@ class GalleryTile extends StatelessWidget {
       future: metadataStore.isUploaded(asset.id),
       builder: (context, snapshot) {
         final isUploaded = snapshot.data ?? false;
-        final isSelectable = !isUploaded;
+        final uploading = isUploading;
+        final isSelectable = !isUploaded && !uploading;
         final effectiveOnTap = selectionMode && !isSelectable ? null : onTap;
         final effectiveOnLongPress = isSelectable ? onLongPress : null;
+        final showSelection = selectionMode &&
+            showSelectionIndicator &&
+            !isUploaded &&
+            !uploading;
 
         return GestureDetector(
           onTap: effectiveOnTap,
@@ -129,7 +139,13 @@ class GalleryTile extends StatelessWidget {
                     left: 8,
                     child: Icon(Icons.favorite, size: 20, color: Colors.white),
                   ),
-                if (selectionMode && showSelectionIndicator && !isUploaded)
+                if (uploading)
+                  const Positioned(
+                    top: 8,
+                    right: 8,
+                    child: _UploadProgressDot(),
+                  )
+                else if (showSelection)
                   Positioned(
                     top: 8,
                     right: 8,
@@ -137,7 +153,7 @@ class GalleryTile extends StatelessWidget {
                   ),
                 if (isUploaded)
                   const Positioned(bottom: 10, left: 10, child: _SyncedBadge()),
-                if (!isUploaded && !selectionMode && onUpload != null)
+                if (!isUploaded && !selectionMode && onUpload != null && !uploading)
                   Positioned(
                     top: 8,
                     right: 8,
@@ -206,6 +222,24 @@ class _GlassCircleButton extends StatelessWidget {
       ),
     );
     return Tooltip(message: 'Upload', child: button);
+  }
+}
+
+class _UploadProgressDot extends StatelessWidget {
+  const _UploadProgressDot();
+
+  @override
+  Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+    return SizedBox(
+      width: 26,
+      height: 26,
+      child: CircularProgressIndicator(
+        strokeWidth: 2.4,
+        valueColor: AlwaysStoppedAnimation<Color>(colorScheme.primary),
+        backgroundColor: Colors.white.withValues(alpha: 0.4),
+      ),
+    );
   }
 }
 

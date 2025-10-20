@@ -5,6 +5,7 @@ import '../../../auth/domain/models/user_details.dart';
 import '../../../auth/presentation/pages/login_page.dart';
 import '../../data/upload_preferences_store.dart';
 import '../../data/settings_actions.dart';
+import '../../../gallery/data/services/gallery_upload_queue.dart';
 
 class SettingsPage extends StatefulWidget {
   const SettingsPage({super.key});
@@ -19,6 +20,7 @@ class _SettingsPageState extends State<SettingsPage> {
   final AuthService _authService = globalAuthService;
   final UploadPreferencesStore _preferencesStore = uploadPreferencesStore;
   final SettingsActions _actions = settingsActions;
+  final GalleryUploadQueue _uploadQueue = galleryUploadQueue;
 
   UserDetails? _userDetails;
   bool _loadingUser = true;
@@ -27,10 +29,16 @@ class _SettingsPageState extends State<SettingsPage> {
   bool _optimizeUploads = false;
   bool _processingLogout = false;
   bool _resettingMetadata = false;
+  List<UploadJob> _uploadJobs = const [];
+  VoidCallback? _uploadQueueListener;
+  bool _showAllUploads = false;
 
   @override
   void initState() {
     super.initState();
+    _uploadJobs = _uploadQueue.jobs;
+    _uploadQueueListener = _handleUploadQueueUpdate;
+    _uploadQueue.addListener(_uploadQueueListener!);
     _loadInitialData();
   }
 
@@ -76,6 +84,18 @@ class _SettingsPageState extends State<SettingsPage> {
       _isPrivateUploads = prefs.isPrivate;
       _optimizeUploads = prefs.optimize;
       _loadingPreferences = false;
+    });
+  }
+
+  void _handleUploadQueueUpdate() {
+    if (!mounted) {
+      return;
+    }
+    setState(() {
+      _uploadJobs = _uploadQueue.jobs;
+      if (_uploadJobs.length <= 10 && _showAllUploads) {
+        _showAllUploads = false;
+      }
     });
   }
 
@@ -178,6 +198,15 @@ class _SettingsPageState extends State<SettingsPage> {
   }
 
   @override
+  void dispose() {
+    if (_uploadQueueListener != null) {
+      _uploadQueue.removeListener(_uploadQueueListener!);
+      _uploadQueueListener = null;
+    }
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     return Scaffold(
@@ -194,6 +223,8 @@ class _SettingsPageState extends State<SettingsPage> {
             _buildUserSection(theme),
             const SizedBox(height: 24),
             _buildUploadConfigSection(theme),
+            const SizedBox(height: 24),
+            _buildUploadProgressSection(theme),
             const SizedBox(height: 24),
             _buildLogoutSection(theme),
           ],
@@ -319,6 +350,93 @@ class _SettingsPageState extends State<SettingsPage> {
     return 'Home/$userSegment/$albumSegment';
   }
 
+  Widget _buildUploadProgressSection(ThemeData theme) {
+    const maxVisible = 10;
+    final jobs = _uploadJobs;
+    final reversedJobs = jobs.reversed.toList();
+    final hasJobs = reversedJobs.isNotEmpty;
+    final showAll = _showAllUploads && jobs.length > maxVisible;
+    final displayedJobs =
+        showAll ? reversedJobs : reversedJobs.take(maxVisible).toList();
+    final hasMore = !showAll && jobs.length > maxVisible;
+    final showLess = showAll && jobs.length > maxVisible;
+    final hasFinished = jobs.any((job) => job.isFinished);
+    final preparing = _uploadQueue.hasActiveUploads && !hasJobs;
+
+    return _SectionCard(
+      title: 'Background Uploads',
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          if (!hasJobs)
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: 12),
+              child: Row(
+                children: [
+                  Icon(
+                    Icons.cloud_sync_outlined,
+                    color: theme.colorScheme.onSurfaceVariant,
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Text(
+                      preparing
+                          ? 'Preparing uploads...'
+                          : 'No uploads in progress.',
+                      style: theme.textTheme.bodyMedium?.copyWith(
+                        color: theme.colorScheme.onSurfaceVariant,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            )
+          else ...[
+            for (final job in displayedJobs)
+              _UploadJobRow(
+                job: job,
+                onCancel: job.status == UploadJobStatus.queued
+                    ? () => _uploadQueue.cancelJob(job.assetId)
+                    : null,
+              ),
+            if (hasMore)
+              Align(
+                alignment: Alignment.centerRight,
+                child: TextButton(
+                  onPressed: () {
+                    setState(() {
+                      _showAllUploads = true;
+                    });
+                  },
+                  child: Text('Show all (${jobs.length})'),
+                ),
+              ),
+            if (showLess)
+              Align(
+                alignment: Alignment.centerRight,
+                child: TextButton(
+                  onPressed: () {
+                    setState(() {
+                      _showAllUploads = false;
+                    });
+                  },
+                  child: const Text('Show less'),
+                ),
+              ),
+          ],
+          if (hasFinished)
+            Align(
+              alignment: Alignment.centerRight,
+              child: TextButton(
+                onPressed: _uploadQueue.clearFinished,
+                child: const Text('Clear completed'),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
   String _resolveUserSegment(UserDetails? details) {
     final explicitName = details?.name?.trim();
     if (explicitName != null && explicitName.isNotEmpty) {
@@ -376,6 +494,139 @@ class _SettingsPageState extends State<SettingsPage> {
         ),
       ),
     );
+  }
+}
+
+class _UploadJobRow extends StatelessWidget {
+  const _UploadJobRow({required this.job, this.onCancel});
+
+  final UploadJob job;
+  final VoidCallback? onCancel;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final status = _statusText(job);
+    final statusColor = _statusColor(job.status, theme);
+    final trailing = _buildTrailing(theme);
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 8),
+      child: Row(
+        children: [
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  job.fileName,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: theme.textTheme.bodyLarge?.copyWith(
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  status,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: theme.textTheme.bodyMedium?.copyWith(
+                    color: statusColor,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(width: 12),
+          trailing,
+        ],
+      ),
+    );
+  }
+
+  Widget _buildTrailing(ThemeData theme) {
+    switch (job.status) {
+      case UploadJobStatus.uploading:
+        return SizedBox(
+          width: 20,
+          height: 20,
+          child: CircularProgressIndicator(
+            strokeWidth: 2.2,
+            valueColor: AlwaysStoppedAnimation<Color>(theme.colorScheme.primary),
+          ),
+        );
+      case UploadJobStatus.queued:
+        if (onCancel != null) {
+          return TextButton.icon(
+            onPressed: onCancel,
+            icon: const Icon(Icons.cancel_outlined, size: 18),
+            label: const Text('Cancel'),
+            style: TextButton.styleFrom(
+              foregroundColor: theme.colorScheme.error,
+            ),
+          );
+        }
+        return Icon(
+          Icons.schedule,
+          color: theme.colorScheme.onSurfaceVariant,
+        );
+      case UploadJobStatus.completed:
+        return Icon(
+          Icons.check_circle,
+          color: theme.colorScheme.primary,
+        );
+      case UploadJobStatus.failed:
+        return Icon(
+          Icons.error_outline,
+          color: theme.colorScheme.error,
+        );
+      case UploadJobStatus.skipped:
+        return Icon(
+          Icons.cloud_done_outlined,
+          color: theme.colorScheme.tertiary,
+        );
+      case UploadJobStatus.cancelled:
+        return Icon(
+          Icons.do_not_disturb_alt_outlined,
+          color: theme.colorScheme.onSurfaceVariant,
+        );
+    }
+  }
+
+  String _statusText(UploadJob job) {
+    switch (job.status) {
+      case UploadJobStatus.queued:
+        return 'Queued';
+      case UploadJobStatus.uploading:
+        return 'Uploading...';
+      case UploadJobStatus.completed:
+        return 'Uploaded';
+      case UploadJobStatus.failed:
+        final message = job.error?.trim();
+        return message?.isNotEmpty == true ? message! : 'Upload failed';
+      case UploadJobStatus.skipped:
+        return 'Already synced';
+      case UploadJobStatus.cancelled:
+        return 'Cancelled';
+    }
+  }
+
+  Color _statusColor(UploadJobStatus status, ThemeData theme) {
+    switch (status) {
+      case UploadJobStatus.uploading:
+        return theme.colorScheme.primary;
+      case UploadJobStatus.completed:
+        return theme.colorScheme.primary;
+      case UploadJobStatus.failed:
+        return theme.colorScheme.error;
+      case UploadJobStatus.skipped:
+        return theme.colorScheme.tertiary;
+      case UploadJobStatus.queued:
+        return theme.colorScheme.onSurfaceVariant;
+      case UploadJobStatus.cancelled:
+        return theme.colorScheme.onSurfaceVariant;
+    }
   }
 }
 

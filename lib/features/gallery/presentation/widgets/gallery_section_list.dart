@@ -18,6 +18,7 @@ class GallerySectionList extends StatelessWidget {
     required this.metadataStore,
     this.selectionMode = false,
     this.selectedAssetIds = const <String>{},
+    this.uploadingAssetIds = const <String>{},
     this.hideSelectionIndicatorAssetIds = const <String>{},
     this.onAssetTap,
     this.onAssetLongPress,
@@ -28,6 +29,7 @@ class GallerySectionList extends StatelessWidget {
   final UploadMetadataStore metadataStore;
   final bool selectionMode;
   final Set<String> selectedAssetIds;
+  final Set<String> uploadingAssetIds;
   final Set<String> hideSelectionIndicatorAssetIds;
   final ValueChanged<AssetEntity>? onAssetTap;
   final ValueChanged<AssetEntity>? onAssetLongPress;
@@ -45,6 +47,7 @@ class GallerySectionList extends StatelessWidget {
             metadataStore: metadataStore,
             selectionMode: selectionMode,
             selectedAssetIds: selectedAssetIds,
+            uploadingAssetIds: uploadingAssetIds,
             hideSelectionIndicatorAssetIds: hideSelectionIndicatorAssetIds,
             onAssetTap: onAssetTap,
             onAssetLongPress: onAssetLongPress,
@@ -62,6 +65,7 @@ class _GallerySectionView extends StatelessWidget {
     required this.metadataStore,
     required this.selectionMode,
     required this.selectedAssetIds,
+    required this.uploadingAssetIds,
     required this.hideSelectionIndicatorAssetIds,
     this.onAssetTap,
     this.onAssetLongPress,
@@ -72,6 +76,7 @@ class _GallerySectionView extends StatelessWidget {
   final UploadMetadataStore metadataStore;
   final bool selectionMode;
   final Set<String> selectedAssetIds;
+  final Set<String> uploadingAssetIds;
   final Set<String> hideSelectionIndicatorAssetIds;
   final ValueChanged<AssetEntity>? onAssetTap;
   final ValueChanged<AssetEntity>? onAssetLongPress;
@@ -110,6 +115,7 @@ class _GallerySectionView extends StatelessWidget {
               metadataStore: metadataStore,
               selectionMode: selectionMode,
               isSelected: selectedAssetIds.contains(asset.id),
+              isUploading: uploadingAssetIds.contains(asset.id),
               showSelectionIndicator:
                   !hideSelectionIndicatorAssetIds.contains(asset.id),
               onTap: () => onAssetTap?.call(asset),
