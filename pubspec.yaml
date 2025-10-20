@@ -37,6 +37,8 @@ dependencies:
   http: ^1.2.1
   connectivity_plus: ^6.0.3
   shared_preferences: ^2.2.3
+  photo_manager: ^3.7.1
+  photo_manager_image_provider: ^2.2.0
 
 dev_dependencies:
   flutter_test:

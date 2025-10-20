@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../data/services/auth_service.dart';
 import '../pages/login_page.dart';
-import '../../../counter/presentation/pages/counter_page.dart';
+import '../../../home/presentation/pages/home_page.dart';
 
 class AuthGate extends StatefulWidget {
   const AuthGate({super.key, this.authService});
@@ -37,7 +37,7 @@ class _AuthGateState extends State<AuthGate> {
 
         if (status == AuthStatus.authenticated ||
             status == AuthStatus.offline) {
-          return const CounterPage();
+          return const HomePage();
         }
 
         return LoginPage(authService: _authService);

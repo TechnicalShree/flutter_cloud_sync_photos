@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../../../core/constants/app_strings.dart';
-import '../../../counter/presentation/pages/counter_page.dart';
+import '../../../home/presentation/pages/home_page.dart';
 import '../../data/services/auth_service.dart';
 
 class LoginView extends StatefulWidget {
@@ -116,7 +116,7 @@ class _LoginViewState extends State<LoginView> {
         context,
       ).showSnackBar(const SnackBar(content: Text('Welcome back!')));
 
-      Navigator.of(context).pushReplacementNamed(CounterPage.routeName);
+      Navigator.of(context).pushReplacementNamed(HomePage.routeName);
     } catch (error) {
       if (!mounted) {
         return;

@@ -5,6 +5,7 @@ import 'core/theme/app_theme.dart';
 import 'features/auth/presentation/pages/login_page.dart';
 import 'features/auth/presentation/widgets/auth_gate.dart';
 import 'features/counter/presentation/pages/counter_page.dart';
+import 'features/home/presentation/pages/home_page.dart';
 
 class CloudSyncPhotosApp extends StatelessWidget {
   const CloudSyncPhotosApp({super.key});
@@ -20,6 +21,7 @@ class CloudSyncPhotosApp extends StatelessWidget {
       home: const AuthGate(),
       routes: {
         LoginPage.routeName: (_) => const LoginPage(),
+        HomePage.routeName: (_) => const HomePage(),
         CounterPage.routeName: (_) => const CounterPage(),
       },
     );

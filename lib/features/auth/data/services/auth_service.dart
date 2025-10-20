@@ -15,7 +15,7 @@ class AuthService {
     NetworkService? networkService,
   }) : _apiClient = apiClient ?? network.apiClient,
        _sessionManager = sessionManager ?? const SessionManager(),
-        _networkService = networkService ?? NetworkService();
+       _networkService = networkService ?? NetworkService();
 
   final network.ApiClient _apiClient;
   final SessionManager _sessionManager;
