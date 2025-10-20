@@ -1,18 +1,14 @@
 import 'dart:async';
-import 'dart:typed_data';
 import 'dart:ui';
 
 import 'package:flutter/material.dart';
 import 'package:photo_manager/photo_manager.dart';
 import 'package:photo_manager_image_provider/photo_manager_image_provider.dart';
 
-import '../../../auth/data/models/photo_media.dart';
-import '../../../auth/data/services/auth_service.dart';
-import 'package:flutter_cloud_sync_photos/core/network/api_exception.dart';
 import '../../../gallery/data/services/upload_metadata_store.dart';
+import '../../../gallery/data/services/gallery_upload_queue.dart';
 import '../../../gallery/presentation/pages/photo_detail_page.dart';
 import '../../../gallery/presentation/widgets/gallery_section_list.dart';
-import '../../../settings/data/upload_preferences_store.dart';
 
 class AlbumDetailPage extends StatefulWidget {
   const AlbumDetailPage({
@@ -40,13 +36,17 @@ class _AlbumDetailPageState extends State<AlbumDetailPage> {
   bool _isLoading = true;
   bool _isLoadingMore = false;
   bool _hasMore = true;
-  bool _isUploading = false;
+  bool _selectionMode = false;
 
   int _nextPage = 0;
 
   final ScrollController _scrollController = ScrollController();
   final UploadMetadataStore _metadataStore = UploadMetadataStore();
-  final UploadPreferencesStore _uploadPreferences = uploadPreferencesStore;
+  late final GalleryUploadQueue _uploadQueue;
+  final Set<String> _selectedAssetIds = <String>{};
+  Set<String> _uploadingAssetIds = const <String>{};
+  bool _hasActiveUploads = false;
+  VoidCallback? _uploadQueueListener;
 
   List<AssetEntity> _assets = const [];
   List<GallerySection> _sections = const [];
@@ -55,6 +55,10 @@ class _AlbumDetailPageState extends State<AlbumDetailPage> {
   @override
   void initState() {
     super.initState();
+    _uploadQueue = galleryUploadQueue;
+    _uploadQueueListener = _handleUploadQueueChange;
+    _uploadQueue.addListener(_uploadQueueListener!);
+    _syncUploadState();
     _scrollController.addListener(_onScroll);
     _assetCount = widget.initialCount;
     _loadAssets(reset: true);
@@ -62,6 +66,10 @@ class _AlbumDetailPageState extends State<AlbumDetailPage> {
 
   @override
   void dispose() {
+    if (_uploadQueueListener != null) {
+      _uploadQueue.removeListener(_uploadQueueListener!);
+      _uploadQueueListener = null;
+    }
     _scrollController.removeListener(_onScroll);
     _scrollController.dispose();
     super.dispose();
@@ -127,7 +135,30 @@ class _AlbumDetailPageState extends State<AlbumDetailPage> {
     }
   }
 
+  void _handleUploadQueueChange() {
+    if (!mounted) {
+      return;
+    }
+    _syncUploadState(notify: true);
+  }
+
+  void _syncUploadState({bool notify = false}) {
+    final uploadingIds = _uploadQueue.activeAssetIds.toSet();
+    final hasActive = _uploadQueue.hasActiveUploads;
+
+    if (notify) {
+      setState(() {
+        _uploadingAssetIds = uploadingIds;
+        _hasActiveUploads = hasActive;
+      });
+    } else {
+      _uploadingAssetIds = uploadingIds;
+      _hasActiveUploads = hasActive;
+    }
+  }
+
   Future<void> _handleRefresh() async {
+    _clearSelection();
     await _loadAssets(reset: true);
   }
 
@@ -154,86 +185,176 @@ class _AlbumDetailPageState extends State<AlbumDetailPage> {
     await _fetchAssets(reset: false);
   }
 
+  void _handleAssetTap(AssetEntity asset) {
+    if (_selectionMode) {
+      unawaited(_toggleSelection(asset));
+      return;
+    }
+    _openAsset(asset);
+  }
+
+  void _handleAssetLongPress(AssetEntity asset) {
+    unawaited(_toggleSelection(asset));
+  }
+
   void _openAsset(AssetEntity asset) {
     Navigator.of(
       context,
     ).push(MaterialPageRoute(builder: (_) => PhotoDetailPage(asset: asset)));
   }
 
-  Future<void> _uploadAsset(AssetEntity asset) async {
-    if (_isUploading) {
-      return;
-    }
+  Future<void> _toggleSelection(AssetEntity asset) async {
+    final id = asset.id;
 
-    final messenger = ScaffoldMessenger.of(context);
-
-    final alreadyUploaded = await _metadataStore.isUploaded(asset.id);
-    if (!mounted) {
-      return;
-    }
-    if (alreadyUploaded) {
+    if (_uploadingAssetIds.contains(id)) {
+      final messenger = ScaffoldMessenger.of(context);
       messenger.hideCurrentSnackBar();
       messenger.showSnackBar(
-        const SnackBar(content: Text('Photo already uploaded')),
+        const SnackBar(content: Text('Upload in progress')),
       );
+      return;
+    }
+
+    final isAlreadySelected = _selectedAssetIds.contains(id);
+    if (!isAlreadySelected) {
+      final alreadyUploaded = await _metadataStore.isUploaded(id);
+      if (!mounted) {
+        return;
+      }
+      if (alreadyUploaded) {
+        final messenger = ScaffoldMessenger.of(context);
+        messenger.hideCurrentSnackBar();
+        messenger.showSnackBar(
+          const SnackBar(content: Text('Photo already synced')),
+        );
+        return;
+      }
+    }
+
+    if (!mounted) {
       return;
     }
 
     setState(() {
-      _isUploading = true;
+      if (isAlreadySelected) {
+        _selectedAssetIds.remove(id);
+        if (_selectedAssetIds.isEmpty) {
+          _selectionMode = false;
+        }
+      } else {
+        _selectedAssetIds.add(id);
+        _selectionMode = true;
+      }
     });
+  }
 
-    final preferences = await _uploadPreferences.load();
-    messenger.hideCurrentSnackBar();
-    messenger.showSnackBar(const SnackBar(content: Text('Uploading photo...')));
+  void _clearSelection() {
+    if (_selectedAssetIds.isEmpty && !_selectionMode) {
+      return;
+    }
+    setState(() {
+      _selectedAssetIds.clear();
+      _selectionMode = false;
+    });
+  }
 
-    try {
-      Uint8List? bytes = await asset.originBytes;
-      bytes ??= await asset.thumbnailDataWithSize(
-        const ThumbnailSize.square(1200),
-      );
+  List<AssetEntity> _getSelectedAssets() {
+    if (_selectedAssetIds.isEmpty) {
+      return const [];
+    }
 
-      if (bytes == null) {
-        throw ApiException(message: 'Unable to read photo data');
-      }
-
-      final Uint8List uploadBytes = bytes;
-
-      final rawTitle = await asset.titleAsync;
-      final trimmed = rawTitle.trim();
-      final sanitizedName = trimmed.isEmpty ? 'photo_${asset.id}.jpg' : trimmed;
-
-      final folder = globalAuthService.buildFolderPath(
-        PhotoMedia(bucketDisplayName: widget.title),
-      );
-
-      final response = await globalAuthService.uploadFile(
-        fileName: sanitizedName,
-        bytes: uploadBytes,
-        isPrivate: preferences.isPrivate,
-        folder: folder,
-        optimize: preferences.optimize,
-      );
-      final contentHash = _findContentHash(response);
-      if (contentHash != null) {
-        await _metadataStore.saveContentHash(asset.id, contentHash);
-      }
-
-      messenger.hideCurrentSnackBar();
-      messenger.showSnackBar(const SnackBar(content: Text('Upload complete')));
-    } on ApiException catch (error) {
-      messenger.hideCurrentSnackBar();
-      messenger.showSnackBar(SnackBar(content: Text(error.message)));
-    } catch (_) {
-      messenger.hideCurrentSnackBar();
-      messenger.showSnackBar(const SnackBar(content: Text('Upload failed')));
-    } finally {
-      if (mounted) {
-        setState(() {
-          _isUploading = false;
-        });
+    final byId = <String, AssetEntity>{};
+    for (final section in _sections) {
+      for (final asset in section.assets) {
+        byId[asset.id] = asset;
       }
     }
+
+    return _selectedAssetIds
+        .map((id) => byId[id])
+        .whereType<AssetEntity>()
+        .toList();
+  }
+
+  Future<void> _uploadAsset(AssetEntity asset) async {
+    final messenger = ScaffoldMessenger.of(context);
+    final summary = await _uploadQueue.enqueueAssets(
+      [asset],
+      fallbackAlbumName: widget.title,
+    );
+
+    if (!mounted) {
+      return;
+    }
+
+    messenger.hideCurrentSnackBar();
+    messenger.showSnackBar(
+      SnackBar(content: Text(_buildEnqueueMessage(summary))),
+    );
+  }
+
+  Future<void> _uploadSelectedAssets() async {
+    if (_selectedAssetIds.isEmpty) {
+      return;
+    }
+
+    final assets = _getSelectedAssets();
+    if (assets.isEmpty) {
+      _clearSelection();
+      return;
+    }
+
+    final summary = await _uploadQueue.enqueueAssets(
+      assets,
+      fallbackAlbumName: widget.title,
+    );
+
+    if (!mounted) {
+      return;
+    }
+
+    final messenger = ScaffoldMessenger.of(context);
+    messenger.hideCurrentSnackBar();
+    messenger.showSnackBar(
+      SnackBar(content: Text(_buildEnqueueMessage(summary))),
+    );
+
+    setState(() {
+      _selectedAssetIds.clear();
+      _selectionMode = false;
+    });
+  }
+
+  String _buildEnqueueMessage(UploadEnqueueSummary summary) {
+    if (summary.totalRequested <= 1) {
+      if (summary.enqueued == 1) {
+        return 'Upload started in background';
+      }
+      if (summary.duplicates > 0) {
+        return 'Upload already in progress';
+      }
+      if (summary.alreadyUploaded > 0) {
+        return 'Photo already uploaded';
+      }
+      return 'Nothing to upload';
+    }
+
+    final parts = <String>[];
+
+    if (summary.enqueued > 0) {
+      final label = summary.enqueued == 1 ? 'upload' : 'uploads';
+      parts.add('Queued ${summary.enqueued} $label');
+    }
+    if (summary.duplicates > 0) {
+      final label = summary.duplicates == 1 ? 'item' : 'items';
+      parts.add('${summary.duplicates} $label already uploading');
+    }
+    if (summary.alreadyUploaded > 0) {
+      final label = summary.alreadyUploaded == 1 ? 'item' : 'items';
+      parts.add('${summary.alreadyUploaded} $label already synced');
+    }
+
+    return parts.isEmpty ? 'No photos queued' : parts.join(', ');
   }
 
   @override
@@ -275,17 +396,38 @@ class _AlbumDetailPageState extends State<AlbumDetailPage> {
                             children: [
                               _GlassIconButton(
                                 icon: Icons.arrow_back,
-                                onPressed: () =>
-                                    Navigator.of(context).maybePop(),
-                                tooltip: 'Back',
+                                onPressed: () {
+                                  if (_selectionMode) {
+                                    _clearSelection();
+                                    return;
+                                  }
+                                  Navigator.of(context).maybePop();
+                                },
+                                tooltip: _selectionMode ? 'Cancel selection' : 'Back',
                               ),
                               const Spacer(),
-                              if (_isUploading)
-                                const _GlassProgressIndicator()
-                              else
+                              if (_hasActiveUploads) ...[
+                                const _GlassProgressIndicator(),
+                                const SizedBox(width: 12),
+                              ],
+                              if (_selectionMode) ...[
                                 _GlassIconButton(
-                                  icon: Icons.cloud_upload_outlined,
-                                  tooltip: 'How do uploads work?',
+                                  icon: Icons.cloud_upload,
+                                  tooltip: 'Upload selected',
+                                  onPressed: _selectedAssetIds.isEmpty
+                                      ? null
+                                      : () => _uploadSelectedAssets(),
+                                ),
+                                const SizedBox(width: 12),
+                                _GlassIconButton(
+                                  icon: Icons.close,
+                                  tooltip: 'Clear selection',
+                                  onPressed: _clearSelection,
+                                ),
+                              ] else
+                                _GlassIconButton(
+                                  icon: Icons.info_outline,
+                                  tooltip: 'How uploads work',
                                   onPressed: _showUploadHint,
                                 ),
                             ],
@@ -353,37 +495,16 @@ class _AlbumDetailPageState extends State<AlbumDetailPage> {
     return GallerySectionList(
       sections: _sections,
       metadataStore: _metadataStore,
-      onAssetTap: _openAsset,
-      onAssetLongPress: _uploadAsset,
+      selectionMode: _selectionMode,
+      selectedAssetIds: _selectedAssetIds,
+      uploadingAssetIds: _uploadingAssetIds,
+      hideSelectionIndicatorAssetIds: _selectionMode && _assets.isNotEmpty
+          ? {_assets.first.id}
+          : const <String>{},
+      onAssetTap: _handleAssetTap,
+      onAssetLongPress: _handleAssetLongPress,
       onAssetUpload: _uploadAsset,
     );
-  }
-
-  String? _findContentHash(Map<String, dynamic> response) {
-    for (final entry in response.entries) {
-      final dynamic value = entry.value;
-      if (entry.key.toLowerCase() == 'content_hash' &&
-          value is String &&
-          value.isNotEmpty) {
-        return value;
-      }
-      if (value is Map<String, dynamic>) {
-        final nested = _findContentHash(value);
-        if (nested != null && nested.isNotEmpty) {
-          return nested;
-        }
-      } else if (value is Iterable) {
-        for (final element in value) {
-          if (element is Map<String, dynamic>) {
-            final nested = _findContentHash(element);
-            if (nested != null && nested.isNotEmpty) {
-              return nested;
-            }
-          }
-        }
-      }
-    }
-    return null;
   }
 
   List<GallerySection> _groupAssetsByDay(List<AssetEntity> assets) {

@@ -1,6 +1,9 @@
 import 'dart:io';
 
 import 'package:flutter/material.dart';
+import 'package:flutter_cloud_sync_photos/core/network/api_exception.dart';
+import 'package:flutter_cloud_sync_photos/features/auth/data/services/auth_service.dart';
+import 'package:flutter_cloud_sync_photos/features/gallery/data/services/upload_metadata_store.dart';
 import 'package:photo_manager/photo_manager.dart';
 import 'package:photo_manager_image_provider/photo_manager_image_provider.dart';
 
@@ -15,12 +18,17 @@ class PhotoDetailPage extends StatefulWidget {
 
 class _PhotoDetailPageState extends State<PhotoDetailPage> {
   late final Future<_PhotoMetadata> _metadataFuture;
+  final UploadMetadataStore _uploadMetadataStore = UploadMetadataStore();
+  String? _contentHash;
+  bool _loadingContentHash = true;
+  bool _isUnsyncing = false;
   bool _showDetails = false;
 
   @override
   void initState() {
     super.initState();
     _metadataFuture = _PhotoMetadata.fromAsset(widget.asset);
+    _loadContentHash();
   }
 
   @override
@@ -182,6 +190,11 @@ class _PhotoDetailPageState extends State<PhotoDetailPage> {
                                     ),
                                     const SizedBox(height: 12),
                                     _MetadataRow(
+                                      label: 'File name',
+                                      value: metadata?.fileName ?? '—',
+                                    ),
+                                    const SizedBox(height: 12),
+                                    _MetadataRow(
                                       label: 'File size',
                                       value: metadata?.fileSize ?? '—',
                                     ),
@@ -192,6 +205,7 @@ class _PhotoDetailPageState extends State<PhotoDetailPage> {
                                         value: metadata!.location!,
                                       ),
                                     ],
+                                    _buildUnsyncSection(),
                                   ],
                                 ),
                         ),
@@ -204,6 +218,129 @@ class _PhotoDetailPageState extends State<PhotoDetailPage> {
           ),
         ],
       ),
+    );
+  }
+
+  Future<void> _loadContentHash() async {
+    final hash = await _uploadMetadataStore.getContentHash(widget.asset.id);
+    if (!mounted) {
+      return;
+    }
+    setState(() {
+      _contentHash = hash;
+      _loadingContentHash = false;
+    });
+  }
+
+  Future<void> _handleUnsync() async {
+    final hash = _contentHash;
+    if (hash == null || hash.isEmpty || _isUnsyncing) {
+      return;
+    }
+
+    setState(() {
+      _isUnsyncing = true;
+    });
+
+    final messenger = ScaffoldMessenger.of(context);
+    messenger.hideCurrentSnackBar();
+
+    try {
+      await globalAuthService.unsyncFile(contentHash: hash);
+      await _uploadMetadataStore.remove(widget.asset.id);
+      if (!mounted) {
+        _isUnsyncing = false;
+        return;
+      }
+      setState(() {
+        _contentHash = null;
+        _isUnsyncing = false;
+      });
+      messenger.showSnackBar(
+        const SnackBar(content: Text('Photo unsynced')),
+      );
+    } on ApiException catch (error) {
+      if (!mounted) {
+        _isUnsyncing = false;
+        return;
+      }
+      setState(() {
+        _isUnsyncing = false;
+      });
+      messenger.showSnackBar(
+        SnackBar(content: Text(error.message)),
+      );
+    } catch (_) {
+      if (!mounted) {
+        _isUnsyncing = false;
+        return;
+      }
+      setState(() {
+        _isUnsyncing = false;
+      });
+      messenger.showSnackBar(
+        const SnackBar(content: Text('Failed to unsync photo')),
+      );
+    }
+  }
+
+  Widget _buildUnsyncSection() {
+    if (_loadingContentHash) {
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: const [
+          SizedBox(height: 24),
+          Center(
+            child: SizedBox(
+              height: 20,
+              width: 20,
+              child: CircularProgressIndicator(
+                strokeWidth: 2.5,
+              ),
+            ),
+          ),
+        ],
+      );
+    }
+
+    final theme = Theme.of(context);
+    final isSynced = _contentHash != null && _contentHash!.isNotEmpty;
+    final isBusy = _isUnsyncing;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        const SizedBox(height: 24),
+        SizedBox(
+          width: double.infinity,
+          child: FilledButton(
+            onPressed: (!isSynced || isBusy) ? null : _handleUnsync,
+            child: isBusy
+                ? SizedBox(
+                    height: 20,
+                    width: 20,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2.5,
+                      valueColor: AlwaysStoppedAnimation<Color>(
+                        theme.colorScheme.onPrimary,
+                      ),
+                    ),
+                  )
+                : const Text('Unsync photo'),
+          ),
+        ),
+        if (!isSynced)
+          Padding(
+            padding: const EdgeInsets.only(top: 8),
+            child: Text(
+              'Photo not synced yet',
+              textAlign: TextAlign.center,
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: theme.colorScheme.onSurfaceVariant,
+              ),
+            ),
+          ),
+      ],
     );
   }
 }
@@ -248,6 +385,7 @@ class _PhotoMetadata {
     required this.width,
     required this.height,
     required this.bytes,
+    required this.fileName,
     this.latLng,
   });
 
@@ -255,6 +393,7 @@ class _PhotoMetadata {
   final int width;
   final int height;
   final int? bytes;
+  final String fileName;
   final LatLng? latLng;
 
   String get formattedDate {
@@ -284,6 +423,20 @@ class _PhotoMetadata {
   static Future<_PhotoMetadata> fromAsset(AssetEntity asset) async {
     File? file = await asset.originFile;
     file ??= await asset.file;
+    String? rawTitle;
+    try {
+      rawTitle = await asset.titleAsync;
+    } catch (_) {
+      rawTitle = null;
+    }
+    final trimmedTitle = rawTitle?.trim() ?? '';
+    final path = file?.path ?? '';
+    final separatorPattern = RegExp(r'[\\/]');
+    final segments = path.isEmpty ? const <String>[] : path.split(separatorPattern);
+    final fallbackName = segments.isNotEmpty ? segments.last.trim() : '';
+    final resolvedFileName = trimmedTitle.isNotEmpty
+        ? trimmedTitle
+        : (fallbackName.isNotEmpty ? fallbackName : 'Unknown');
 
     final bytes = await file?.length();
     LatLng? latLng;
@@ -298,6 +451,7 @@ class _PhotoMetadata {
       width: asset.width,
       height: asset.height,
       bytes: bytes,
+      fileName: resolvedFileName,
       latLng: latLng,
     );
   }

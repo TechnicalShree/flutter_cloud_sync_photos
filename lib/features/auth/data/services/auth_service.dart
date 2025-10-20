@@ -191,6 +191,34 @@ class AuthService {
     }
   }
 
+  Future<Map<String, dynamic>> unsyncFile({
+    required String contentHash,
+  }) async {
+    if (contentHash.isEmpty) {
+      throw ApiException(message: 'Missing content hash');
+    }
+
+    try {
+      final response = await _apiClient.sendToEndpoint<Map<String, dynamic>>(
+        method: network.ApiMethod.post,
+        endpoint: ApiEndpoint.unsyncFile,
+        body: {'content_hash': contentHash},
+        parser: (data) =>
+            (data as Map<String, dynamic>? ?? <String, dynamic>{}),
+      );
+
+      final message = response.data['message'];
+      if (message is Map<String, dynamic>) {
+        return message;
+      }
+      return response.data;
+    } on ApiException {
+      rethrow;
+    } catch (error) {
+      throw ApiException(message: 'Failed to unsync file', body: error);
+    }
+  }
+
   Map<String, String> _extractCookies(Map<String, String> headers) {
     final setCookie = headers['set-cookie'];
     if (setCookie == null || setCookie.isEmpty) {
