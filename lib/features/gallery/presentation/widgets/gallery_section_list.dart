@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:photo_manager/photo_manager.dart';
 
+import '../../data/services/upload_metadata_store.dart';
 import 'gallery_sliver_grid.dart';
 
 class GallerySection {
@@ -14,11 +15,23 @@ class GallerySectionList extends StatelessWidget {
   const GallerySectionList({
     super.key,
     required this.sections,
+    required this.metadataStore,
+    this.selectionMode = false,
+    this.selectedAssetIds = const <String>{},
+    this.hideSelectionIndicatorAssetIds = const <String>{},
     this.onAssetTap,
+    this.onAssetLongPress,
+    this.onAssetUpload,
   });
 
   final List<GallerySection> sections;
+  final UploadMetadataStore metadataStore;
+  final bool selectionMode;
+  final Set<String> selectedAssetIds;
+  final Set<String> hideSelectionIndicatorAssetIds;
   final ValueChanged<AssetEntity>? onAssetTap;
+  final ValueChanged<AssetEntity>? onAssetLongPress;
+  final ValueChanged<AssetEntity>? onAssetUpload;
 
   @override
   Widget build(BuildContext context) {
@@ -27,7 +40,16 @@ class GallerySectionList extends StatelessWidget {
         final section = sections[index];
         return Padding(
           padding: const EdgeInsets.only(bottom: 24),
-          child: _GallerySectionView(section: section, onAssetTap: onAssetTap),
+          child: _GallerySectionView(
+            section: section,
+            metadataStore: metadataStore,
+            selectionMode: selectionMode,
+            selectedAssetIds: selectedAssetIds,
+            hideSelectionIndicatorAssetIds: hideSelectionIndicatorAssetIds,
+            onAssetTap: onAssetTap,
+            onAssetLongPress: onAssetLongPress,
+            onAssetUpload: onAssetUpload,
+          ),
         );
       }, childCount: sections.length),
     );
@@ -35,10 +57,25 @@ class GallerySectionList extends StatelessWidget {
 }
 
 class _GallerySectionView extends StatelessWidget {
-  const _GallerySectionView({required this.section, this.onAssetTap});
+  const _GallerySectionView({
+    required this.section,
+    required this.metadataStore,
+    required this.selectionMode,
+    required this.selectedAssetIds,
+    required this.hideSelectionIndicatorAssetIds,
+    this.onAssetTap,
+    this.onAssetLongPress,
+    this.onAssetUpload,
+  });
 
   final GallerySection section;
+  final UploadMetadataStore metadataStore;
+  final bool selectionMode;
+  final Set<String> selectedAssetIds;
+  final Set<String> hideSelectionIndicatorAssetIds;
   final ValueChanged<AssetEntity>? onAssetTap;
+  final ValueChanged<AssetEntity>? onAssetLongPress;
+  final ValueChanged<AssetEntity>? onAssetUpload;
 
   @override
   Widget build(BuildContext context) {
@@ -70,7 +107,16 @@ class _GallerySectionView extends StatelessWidget {
             return GalleryTile(
               asset: asset,
               theme: theme,
+              metadataStore: metadataStore,
+              selectionMode: selectionMode,
+              isSelected: selectedAssetIds.contains(asset.id),
+              showSelectionIndicator:
+                  !hideSelectionIndicatorAssetIds.contains(asset.id),
               onTap: () => onAssetTap?.call(asset),
+              onLongPress: () => onAssetLongPress?.call(asset),
+              onUpload: onAssetUpload != null
+                  ? () => onAssetUpload?.call(asset)
+                  : null,
             );
           },
         ),

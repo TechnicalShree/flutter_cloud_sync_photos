@@ -152,6 +152,88 @@ class ApiClient {
     );
   }
 
+  Future<ApiResponse<T>> sendMultipart<T>({
+    required String path,
+    required List<http.MultipartFile> files,
+    ApiMethod method = ApiMethod.post,
+    Map<String, String>? headers,
+    Map<String, String>? fields,
+    Map<String, String>? cookies,
+    ResponseParser<T>? parser,
+    bool Function(int statusCode)? validateStatus,
+    Duration? timeout,
+  }) async {
+    if (method != ApiMethod.post && method != ApiMethod.put) {
+      throw ArgumentError('Multipart requests only support POST or PUT.');
+    }
+
+    final uri = _buildUri(path, null);
+    final requestHeaders = _prepareHeaders(headers, cookies);
+    requestHeaders.removeWhere((key, _) => key.toLowerCase() == 'content-type');
+
+    final request = http.MultipartRequest(method.name.toUpperCase(), uri);
+    request.headers.addAll(requestHeaders);
+    if (fields != null && fields.isNotEmpty) {
+      request.fields.addAll(fields);
+    }
+    request.files.addAll(files);
+
+    late final http.StreamedResponse streamedResponse;
+    try {
+      streamedResponse = await _httpClient
+          .send(request)
+          .timeout(timeout ?? _config.timeout);
+    } on TimeoutException catch (error) {
+      throw ApiException(
+        message:
+            'Request timed out for ${method.name.toUpperCase()} ${uri.toString()}',
+        body: error.toString(),
+      );
+    } on Exception catch (error) {
+      throw ApiException(
+        message:
+            'Request failed to reach ${uri.host}. Please check your connection.',
+        body: error.toString(),
+      );
+    }
+
+    final response = await http.Response.fromStream(streamedResponse);
+    final decodedBody = _decodeBody(response.body);
+    final isValid =
+        validateStatus?.call(response.statusCode) ??
+        _isSuccessful(response.statusCode);
+
+    if (!isValid) {
+      throw ApiException(
+        message:
+            'Request failed for ${method.name.toUpperCase()} ${uri.toString()}',
+        statusCode: response.statusCode,
+        body: decodedBody,
+      );
+    }
+
+    try {
+      final T parsedBody = parser != null
+          ? parser(decodedBody)
+          : decodedBody as T;
+
+      return ApiResponse<T>(
+        statusCode: response.statusCode,
+        data: parsedBody,
+        headers: response.headers,
+        uri: uri,
+        rawData: decodedBody,
+      );
+    } catch (error) {
+      throw ApiException(
+        message:
+            'Failed to parse response for ${method.name.toUpperCase()} ${uri.toString()}',
+        statusCode: response.statusCode,
+        body: decodedBody,
+      );
+    }
+  }
+
   void close() {
     _httpClient.close();
   }

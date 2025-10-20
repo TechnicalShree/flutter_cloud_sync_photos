@@ -35,27 +35,40 @@ class _HomePageState extends State<HomePage> {
 
     final pages = [const GalleryPage(), const AlbumPage()];
 
-    return Scaffold(
-      body: AnimatedSwitcher(
-        duration: const Duration(milliseconds: 250),
-        transitionBuilder: (child, animation) =>
-            FadeTransition(opacity: animation, child: child),
-        child: pages[_currentIndex],
-      ),
-      bottomNavigationBar: NavigationBar(
-        destinations: _destinations,
-        selectedIndex: _currentIndex,
-        labelBehavior: NavigationDestinationLabelBehavior.onlyShowSelected,
-        backgroundColor: colorScheme.surface,
-        elevation: 12,
-        onDestinationSelected: (index) {
-          if (_currentIndex == index) {
-            return;
-          }
+    return PopScope(
+      canPop: _currentIndex == 0,
+      onPopInvokedWithResult: (didPop, _) {
+        if (didPop) {
+          return;
+        }
+        if (_currentIndex != 0) {
           setState(() {
-            _currentIndex = index;
+            _currentIndex = 0;
           });
-        },
+        }
+      },
+      child: Scaffold(
+        body: AnimatedSwitcher(
+          duration: const Duration(milliseconds: 250),
+          transitionBuilder: (child, animation) =>
+              FadeTransition(opacity: animation, child: child),
+          child: pages[_currentIndex],
+        ),
+        bottomNavigationBar: NavigationBar(
+          destinations: _destinations,
+          selectedIndex: _currentIndex,
+          labelBehavior: NavigationDestinationLabelBehavior.onlyShowSelected,
+          backgroundColor: colorScheme.surface,
+          elevation: 12,
+          onDestinationSelected: (index) {
+            if (_currentIndex == index) {
+              return;
+            }
+            setState(() {
+              _currentIndex = index;
+            });
+          },
+        ),
       ),
     );
   }

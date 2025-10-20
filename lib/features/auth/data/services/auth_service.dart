@@ -3,8 +3,11 @@ import 'package:flutter_cloud_sync_photos/core/network/api_client.dart'
 import 'package:flutter_cloud_sync_photos/core/network/api_exception.dart';
 import 'package:flutter_cloud_sync_photos/core/network/network_config.dart';
 import 'package:flutter_cloud_sync_photos/core/network/network_service.dart';
+import 'package:http/http.dart' as http;
 
 import 'session_manager.dart';
+import '../../domain/models/user_details.dart';
+import '../models/photo_media.dart';
 
 enum AuthStatus { authenticated, unauthenticated, offline }
 
@@ -21,8 +24,11 @@ class AuthService {
   final SessionManager _sessionManager;
   final NetworkService _networkService;
   Map<String, String> _sessionCookies = const {};
+  UserDetails? _userDetails;
 
   Map<String, String> get sessionCookies => Map.unmodifiable(_sessionCookies);
+
+  UserDetails? get currentUser => _userDetails;
 
   Future<Map<String, String>> login({
     required String username,
@@ -56,6 +62,7 @@ class AuthService {
     _sessionCookies = cookies;
     await _sessionManager.persistCookies(cookies);
     _apiClient.setDefaultCookies(cookies, merge: false);
+    await _loadAndPersistUserDetails();
 
     return sessionCookies;
   }
@@ -68,11 +75,18 @@ class AuthService {
       if (storedCookies.isNotEmpty) {
         _sessionCookies = storedCookies;
         _apiClient.setDefaultCookies(storedCookies, merge: false);
+        _userDetails = await _sessionManager.loadUserDetails();
       }
       return AuthStatus.offline;
     }
 
     final hasSession = await verifySession();
+    if (hasSession) {
+      _userDetails = await _sessionManager.loadUserDetails();
+      if (_userDetails == null) {
+        await _loadAndPersistUserDetails();
+      }
+    }
     return hasSession ? AuthStatus.authenticated : AuthStatus.unauthenticated;
   }
 
@@ -103,8 +117,77 @@ class AuthService {
 
   Future<void> logout() async {
     _sessionCookies = const {};
+    _userDetails = null;
     await _sessionManager.clearCookies();
+    await _sessionManager.clearUserDetails();
     _apiClient.setDefaultCookies({}, merge: false);
+  }
+
+  Future<UserDetails> fetchUserDetails() async {
+    try {
+      final response = await _apiClient.sendToEndpoint<Map<String, dynamic>>(
+        method: network.ApiMethod.get,
+        endpoint: ApiEndpoint.userDetails,
+        parser: (data) =>
+            (data as Map<String, dynamic>? ?? <String, dynamic>{}),
+      );
+
+      final message = response.data['message'];
+      if (message is Map<String, dynamic>) {
+        return UserDetails.fromJson(message);
+      }
+      return UserDetails.fromJson(response.data);
+    } on ApiException {
+      rethrow;
+    } catch (error) {
+      throw ApiException(message: 'Failed to load user details', body: error);
+    }
+  }
+
+  Future<void> _loadAndPersistUserDetails() async {
+    final details = await fetchUserDetails();
+    _userDetails = details;
+    await _sessionManager.persistUserDetails(details);
+  }
+
+  Future<Map<String, dynamic>> uploadFile({
+    required String fileName,
+    required List<int> bytes,
+    required bool isPrivate,
+    required String folder,
+    required bool optimize,
+  }) async {
+    try {
+      final file = http.MultipartFile.fromBytes(
+        'file',
+        bytes,
+        filename: fileName,
+      );
+
+      final fields = <String, String>{
+        'is_private': isPrivate ? '1' : '0',
+        'folder': folder,
+        'optimize': optimize ? '1' : '0',
+      };
+
+      final response = await _apiClient.sendMultipart<Map<String, dynamic>>(
+        path: ApiEndpoint.uploadFile.path,
+        files: [file],
+        fields: fields,
+        parser: (data) =>
+            (data as Map<String, dynamic>? ?? <String, dynamic>{}),
+      );
+
+      final message = response.data['message'];
+      if (message is Map<String, dynamic>) {
+        return message;
+      }
+      return response.data;
+    } on ApiException {
+      rethrow;
+    } catch (error) {
+      throw ApiException(message: 'File upload failed', body: error);
+    }
   }
 
   Map<String, String> _extractCookies(Map<String, String> headers) {
@@ -139,6 +222,26 @@ class AuthService {
 
     return cookies;
   }
+
+  String buildFolderPath(PhotoMedia photo) {
+    final userSegment = _userDetails?.name?.trim().isNotEmpty == true
+        ? _userDetails!.name!.trim()
+        : (_userDetails?.user?.trim().isNotEmpty == true
+              ? _userDetails!.user!.trim()
+              : 'anonymous');
+
+    final albumRaw = photo.bucketDisplayName?.trim() ?? '';
+    final albumSegment = albumRaw
+        .replaceAll('/', '_')
+        .replaceAll('\\', '_')
+        .ifEmpty('Unsorted');
+
+    return 'Home/$userSegment/$albumSegment';
+  }
+}
+
+extension on String {
+  String ifEmpty(String fallback) => isEmpty ? fallback : this;
 }
 
 final AuthService globalAuthService = AuthService();
