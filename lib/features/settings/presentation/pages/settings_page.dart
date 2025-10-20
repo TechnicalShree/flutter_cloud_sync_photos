@@ -221,43 +221,23 @@ class _SettingsPageState extends State<SettingsPage> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(
-            details?.fullName?.trim().isNotEmpty == true
-                ? details!.fullName!.trim()
-                : (details?.user ?? 'Unknown user'),
-            style: theme.textTheme.titleMedium?.copyWith(
-              fontWeight: FontWeight.w600,
-            ),
+          _InfoRow(
+            label: 'Full name',
+            value:
+                _safeDisplay(details?.fullName) ??
+                _safeDisplay(details?.name) ??
+                'Unknown user',
           ),
-          const SizedBox(height: 8),
-          if (details?.user != null)
-            Text(
-              details!.user!,
-              style: theme.textTheme.bodyMedium?.copyWith(
-                color: theme.colorScheme.onSurfaceVariant,
-              ),
-            ),
-          if (details?.mobileNumber != null &&
-              details!.mobileNumber!.trim().isNotEmpty)
-            Padding(
-              padding: const EdgeInsets.only(top: 8),
-              child: Text(
-                details.mobileNumber!,
-                style: theme.textTheme.bodyMedium?.copyWith(
-                  color: theme.colorScheme.onSurfaceVariant,
-                ),
-              ),
-            ),
-          if (details?.address != null && details!.address!.trim().isNotEmpty)
-            Padding(
-              padding: const EdgeInsets.only(top: 8),
-              child: Text(
-                details.address!,
-                style: theme.textTheme.bodyMedium?.copyWith(
-                  color: theme.colorScheme.onSurfaceVariant,
-                ),
-              ),
-            ),
+          const SizedBox(height: 12),
+          _InfoRow(
+            label: 'Email / User',
+            value: _safeDisplay(details?.user) ?? 'Not available',
+          ),
+          const SizedBox(height: 12),
+          _InfoRow(
+            label: 'Gender',
+            value: _safeDisplay(details?.gender) ?? 'Not specified',
+          ),
         ],
       ),
     );
@@ -362,6 +342,14 @@ class _SettingsPageState extends State<SettingsPage> {
     return sanitized.isEmpty ? 'Unsorted' : sanitized;
   }
 
+  String? _safeDisplay(String? value) {
+    if (value == null) {
+      return null;
+    }
+    final trimmed = value.trim();
+    return trimmed.isEmpty ? null : trimmed;
+  }
+
   Widget _buildLogoutSection(ThemeData theme) {
     return _SectionCard(
       title: 'Session',
@@ -387,6 +375,37 @@ class _SettingsPageState extends State<SettingsPage> {
           label: Text(_processingLogout ? 'Signing out...' : 'Sign out'),
         ),
       ),
+    );
+  }
+}
+
+class _InfoRow extends StatelessWidget {
+  const _InfoRow({required this.label, required this.value});
+
+  final String label;
+  final String value;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          label,
+          style: theme.textTheme.labelSmall?.copyWith(
+            color: theme.colorScheme.onSurfaceVariant.withValues(alpha: 0.7),
+            letterSpacing: 0.4,
+          ),
+        ),
+        const SizedBox(height: 4),
+        Text(
+          value,
+          style: theme.textTheme.bodyMedium?.copyWith(
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+      ],
     );
   }
 }

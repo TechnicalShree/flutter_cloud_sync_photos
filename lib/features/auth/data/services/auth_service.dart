@@ -133,10 +133,13 @@ class AuthService {
       );
 
       final message = response.data['message'];
-      if (message is Map<String, dynamic>) {
-        return UserDetails.fromJson(message);
-      }
-      return UserDetails.fromJson(response.data);
+      final userDetails = message is Map<String, dynamic>
+          ? UserDetails.fromJson(message)
+          : UserDetails.fromJson(response.data);
+
+      _userDetails = userDetails;
+      await _sessionManager.persistUserDetails(userDetails);
+      return userDetails;
     } on ApiException {
       rethrow;
     } catch (error) {
@@ -145,9 +148,7 @@ class AuthService {
   }
 
   Future<void> _loadAndPersistUserDetails() async {
-    final details = await fetchUserDetails();
-    _userDetails = details;
-    await _sessionManager.persistUserDetails(details);
+    await fetchUserDetails();
   }
 
   Future<Map<String, dynamic>> uploadFile({
