@@ -4,7 +4,7 @@ import 'core/constants/app_strings.dart';
 import 'core/theme/app_theme.dart';
 import 'features/auth/presentation/pages/login_page.dart';
 import 'features/auth/presentation/widgets/auth_gate.dart';
-import 'features/counter/presentation/pages/counter_page.dart';
+import 'features/albums/presentation/pages/album_page.dart';
 import 'features/home/presentation/pages/home_page.dart';
 
 class CloudSyncPhotosApp extends StatelessWidget {
@@ -22,7 +22,7 @@ class CloudSyncPhotosApp extends StatelessWidget {
       routes: {
         LoginPage.routeName: (_) => const LoginPage(),
         HomePage.routeName: (_) => const HomePage(),
-        CounterPage.routeName: (_) => const CounterPage(),
+        AlbumPage.routeName: (_) => const AlbumPage(),
       },
     );
   }

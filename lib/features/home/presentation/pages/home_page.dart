@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../../gallery/presentation/pages/gallery_page.dart';
-import '../../../counter/presentation/pages/counter_page.dart';
+import '../../../albums/presentation/pages/album_page.dart';
 
 class HomePage extends StatefulWidget {
   const HomePage({super.key});
@@ -20,9 +20,9 @@ class _HomePageState extends State<HomePage> {
       label: 'Gallery',
     ),
     NavigationDestination(
-      icon: Icon(Icons.dashboard_customize_outlined),
-      selectedIcon: Icon(Icons.dashboard_customize),
-      label: 'Dashboard',
+      icon: Icon(Icons.photo_album_outlined),
+      selectedIcon: Icon(Icons.photo_album),
+      label: 'Albums',
     ),
   ];
 
@@ -33,7 +33,7 @@ class _HomePageState extends State<HomePage> {
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
 
-    final pages = [const GalleryPage(), const CounterPage()];
+    final pages = [const GalleryPage(), const AlbumPage()];
 
     return Scaffold(
       body: AnimatedSwitcher(
