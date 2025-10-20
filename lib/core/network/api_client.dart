@@ -69,13 +69,28 @@ class ApiClient {
     final uri = _buildUri(path, queryParameters);
     final requestHeaders = _prepareHeaders(headers, cookies);
     final requestBody = _encodeBody(body, requestHeaders);
-    final response = await _sendRequest(
-      method: method,
-      uri: uri,
-      headers: requestHeaders,
-      body: requestBody,
-      timeout: timeout ?? _config.timeout,
-    );
+    late final http.Response response;
+    try {
+      response = await _sendRequest(
+        method: method,
+        uri: uri,
+        headers: requestHeaders,
+        body: requestBody,
+        timeout: timeout ?? _config.timeout,
+      );
+    } on TimeoutException catch (error) {
+      throw ApiException(
+        message:
+            'Request timed out for ${method.name.toUpperCase()} ${uri.toString()}',
+        body: error.toString(),
+      );
+    } on Exception catch (error) {
+      throw ApiException(
+        message:
+            'Request failed to reach ${uri.host}. Please check your connection.',
+        body: error.toString(),
+      );
+    }
 
     final decodedBody = _decodeBody(response.body);
     final isValid =
@@ -91,17 +106,26 @@ class ApiClient {
       );
     }
 
-    final T parsedBody = parser != null
-        ? parser(decodedBody)
-        : decodedBody as T;
+    try {
+      final T parsedBody = parser != null
+          ? parser(decodedBody)
+          : decodedBody as T;
 
-    return ApiResponse<T>(
-      statusCode: response.statusCode,
-      data: parsedBody,
-      headers: response.headers,
-      uri: uri,
-      rawData: decodedBody,
-    );
+      return ApiResponse<T>(
+        statusCode: response.statusCode,
+        data: parsedBody,
+        headers: response.headers,
+        uri: uri,
+        rawData: decodedBody,
+      );
+    } catch (error) {
+      throw ApiException(
+        message:
+            'Failed to parse response for ${method.name.toUpperCase()} ${uri.toString()}',
+        statusCode: response.statusCode,
+        body: decodedBody,
+      );
+    }
   }
 
   Future<ApiResponse<T>> sendToEndpoint<T>({

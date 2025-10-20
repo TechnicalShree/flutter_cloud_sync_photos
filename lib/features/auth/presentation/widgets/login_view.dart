@@ -1,6 +1,9 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import '../../../../core/constants/app_strings.dart';
+import '../../../../core/network/api_exception.dart';
 import '../../../home/presentation/pages/home_page.dart';
 import '../../data/services/auth_service.dart';
 
@@ -135,6 +138,29 @@ class _LoginViewState extends State<LoginView> {
   }
 
   String _resolveErrorMessage(Object error) {
+    if (error is ApiException) {
+      final code = error.statusCode;
+      if (code != null) {
+        if (code >= 500) {
+          return 'The server is unavailable right now (code $code). Please try again later.';
+        }
+        if (code == 401 || code == 403) {
+          return 'Invalid username or password.';
+        }
+        return 'Request failed (code $code). Please try again.';
+      }
+
+      final message = error.message.trim();
+      if (message.isNotEmpty) {
+        return message;
+      }
+      return 'Unable to reach the server. Check your connection and try again.';
+    }
+
+    if (error is TimeoutException) {
+      return 'The request timed out. Check your connection and try again.';
+    }
+
     if (error is Exception) {
       return error.toString().replaceFirst('Exception: ', '');
     }

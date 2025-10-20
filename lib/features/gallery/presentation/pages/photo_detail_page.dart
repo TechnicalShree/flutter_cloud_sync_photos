@@ -15,6 +15,7 @@ class PhotoDetailPage extends StatefulWidget {
 
 class _PhotoDetailPageState extends State<PhotoDetailPage> {
   late final Future<_PhotoMetadata> _metadataFuture;
+  bool _showDetails = false;
 
   @override
   void initState() {
@@ -33,27 +34,59 @@ class _PhotoDetailPageState extends State<PhotoDetailPage> {
         elevation: 0,
         iconTheme: const IconThemeData(color: Colors.white),
         title: const Text('Photo details'),
+        leadingWidth: 72,
+        leading: Padding(
+          padding: const EdgeInsets.only(left: 12),
+          child: IconButton(
+            icon: const Icon(Icons.arrow_back),
+            onPressed: () => Navigator.of(context).maybePop(),
+          ),
+        ),
+        actions: [
+          Padding(
+            padding: const EdgeInsets.only(right: 12),
+            child: IconButton(
+              tooltip: _showDetails ? 'Hide details' : 'Show details',
+              onPressed: () {
+                setState(() => _showDetails = !_showDetails);
+              },
+              icon: Icon(_showDetails ? Icons.close : Icons.info_outline),
+            ),
+          ),
+        ],
       ),
       body: Stack(
         children: [
           Positioned.fill(
             child: Hero(
               tag: widget.asset.id,
-              child: InteractiveViewer(
-                minScale: 1,
-                maxScale: 6,
-                boundaryMargin: const EdgeInsets.all(80),
-                child: Container(
-                  color: Colors.black,
-                  alignment: Alignment.center,
-                  child: Image(
-                    image: AssetEntityImageProvider(
-                      widget.asset,
-                      isOriginal: true,
+              child: LayoutBuilder(
+                builder: (context, constraints) {
+                  return ClipRect(
+                    child: InteractiveViewer(
+                      minScale: 1,
+                      maxScale: 6,
+                      boundaryMargin: EdgeInsets.zero,
+                      child: SizedBox(
+                        width: constraints.maxWidth,
+                        height: constraints.maxHeight,
+                        child: DecoratedBox(
+                          decoration: const BoxDecoration(color: Colors.black),
+                          child: FittedBox(
+                            fit: BoxFit.contain,
+                            clipBehavior: Clip.hardEdge,
+                            child: Image(
+                              image: AssetEntityImageProvider(
+                                widget.asset,
+                                isOriginal: true,
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
                     ),
-                    fit: BoxFit.contain,
-                  ),
-                ),
+                  );
+                },
               ),
             ),
           ),
@@ -78,78 +111,95 @@ class _PhotoDetailPageState extends State<PhotoDetailPage> {
           ),
           Align(
             alignment: Alignment.bottomCenter,
-            child: FutureBuilder<_PhotoMetadata>(
-              future: _metadataFuture,
-              builder: (context, snapshot) {
-                final metadata = snapshot.data;
-                return SafeArea(
-                  top: false,
-                  child: Container(
-                    width: double.infinity,
-                    decoration: BoxDecoration(
-                      color: theme.colorScheme.surface,
-                      borderRadius: const BorderRadius.vertical(
-                        top: Radius.circular(24),
-                      ),
-                      boxShadow: [
-                        BoxShadow(
-                          blurRadius: 24,
-                          offset: const Offset(0, -8),
-                          color: Colors.black.withValues(alpha: 0.35),
-                        ),
-                      ],
-                    ),
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 24,
-                      vertical: 20,
-                    ),
-                    child: snapshot.connectionState == ConnectionState.waiting
-                        ? const Center(
-                            child: SizedBox(
-                              height: 24,
-                              width: 24,
-                              child: CircularProgressIndicator(
-                                strokeWidth: 2.5,
-                              ),
+            child: IgnorePointer(
+              ignoring: !_showDetails,
+              child: AnimatedSlide(
+                offset: _showDetails ? Offset.zero : const Offset(0, 1),
+                duration: const Duration(milliseconds: 220),
+                curve: Curves.easeOut,
+                child: AnimatedOpacity(
+                  opacity: _showDetails ? 1 : 0,
+                  duration: const Duration(milliseconds: 220),
+                  curve: Curves.easeOut,
+                  child: FutureBuilder<_PhotoMetadata>(
+                    future: _metadataFuture,
+                    builder: (context, snapshot) {
+                      final metadata = snapshot.data;
+                      return SafeArea(
+                        top: false,
+                        child: Container(
+                          width: double.infinity,
+                          decoration: BoxDecoration(
+                            color: theme.colorScheme.surface,
+                            borderRadius: const BorderRadius.vertical(
+                              top: Radius.circular(24),
                             ),
-                          )
-                        : Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              Text(
-                                'Details',
-                                style: theme.textTheme.titleMedium?.copyWith(
-                                  fontWeight: FontWeight.w600,
-                                ),
+                            boxShadow: [
+                              BoxShadow(
+                                blurRadius: 24,
+                                offset: const Offset(0, -8),
+                                color: Colors.black.withValues(alpha: 0.35),
                               ),
-                              const SizedBox(height: 16),
-                              _MetadataRow(
-                                label: 'Captured',
-                                value: metadata?.formattedDate ?? 'Unknown',
-                              ),
-                              const SizedBox(height: 12),
-                              _MetadataRow(
-                                label: 'Resolution',
-                                value: metadata?.resolution ?? '—',
-                              ),
-                              const SizedBox(height: 12),
-                              _MetadataRow(
-                                label: 'File size',
-                                value: metadata?.fileSize ?? '—',
-                              ),
-                              if (metadata?.location != null) ...[
-                                const SizedBox(height: 12),
-                                _MetadataRow(
-                                  label: 'Location',
-                                  value: metadata!.location!,
-                                ),
-                              ],
                             ],
                           ),
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 24,
+                            vertical: 20,
+                          ),
+                          child:
+                              snapshot.connectionState ==
+                                  ConnectionState.waiting
+                              ? const Center(
+                                  child: SizedBox(
+                                    height: 24,
+                                    width: 24,
+                                    child: CircularProgressIndicator(
+                                      strokeWidth: 2.5,
+                                    ),
+                                  ),
+                                )
+                              : Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    Text(
+                                      'Details',
+                                      style: theme.textTheme.titleMedium
+                                          ?.copyWith(
+                                            fontWeight: FontWeight.w600,
+                                          ),
+                                    ),
+                                    const SizedBox(height: 16),
+                                    _MetadataRow(
+                                      label: 'Captured',
+                                      value:
+                                          metadata?.formattedDate ?? 'Unknown',
+                                    ),
+                                    const SizedBox(height: 12),
+                                    _MetadataRow(
+                                      label: 'Resolution',
+                                      value: metadata?.resolution ?? '—',
+                                    ),
+                                    const SizedBox(height: 12),
+                                    _MetadataRow(
+                                      label: 'File size',
+                                      value: metadata?.fileSize ?? '—',
+                                    ),
+                                    if (metadata?.location != null) ...[
+                                      const SizedBox(height: 12),
+                                      _MetadataRow(
+                                        label: 'Location',
+                                        value: metadata!.location!,
+                                      ),
+                                    ],
+                                  ],
+                                ),
+                        ),
+                      );
+                    },
                   ),
-                );
-              },
+                ),
+              ),
             ),
           ),
         ],
