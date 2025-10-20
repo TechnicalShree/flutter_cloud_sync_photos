@@ -1,9 +1,11 @@
 import 'dart:async';
 import 'dart:typed_data';
+import 'dart:ui';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_cloud_sync_photos/core/network/api_exception.dart';
 import 'package:photo_manager/photo_manager.dart';
+import 'package:photo_manager_image_provider/photo_manager_image_provider.dart';
 
 import '../../../auth/data/models/photo_media.dart';
 import '../../../auth/data/services/auth_service.dart';
@@ -512,41 +514,72 @@ class _GalleryPageState extends State<GalleryPage> {
                 physics: const AlwaysScrollableScrollPhysics(),
                 slivers: [
                   SliverAppBar(
-                    backgroundColor: Colors.transparent,
-                    elevation: 0,
-                    titleSpacing: 24,
+                    expandedHeight: 240,
                     pinned: true,
-                    title: Text(
-                      _selectionMode
-                          ? '${_selectedAssetIds.length} selected'
-                          : 'Gallery',
-                      style: theme.textTheme.headlineMedium?.copyWith(
-                        fontWeight: FontWeight.w700,
-                      ),
+                    elevation: 0,
+                    backgroundColor: Colors.transparent,
+                    automaticallyImplyLeading: false,
+                    flexibleSpace: LayoutBuilder(
+                      builder: (context, constraints) {
+                        final highlight = _assets.isNotEmpty
+                            ? _assets.first
+                            : null;
+                        final title = _selectionMode
+                            ? '${_selectedAssetIds.length} selected'
+                            : 'Gallery';
+                        final subtitle = _selectionMode
+                            ? '${_assets.length} total photos'
+                            : '${_assets.length} photos';
+
+                        return Stack(
+                          fit: StackFit.expand,
+                          children: [
+                            _GalleryGlassHeader(
+                              asset: highlight,
+                              title: title,
+                              subtitle: subtitle,
+                            ),
+                            SafeArea(
+                              child: Padding(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 16,
+                                  vertical: 12,
+                                ),
+                                child: Row(
+                                  children: [
+                                    const Spacer(),
+                                    if (_isUploading)
+                                      const _GalleryGlassProgressIndicator()
+                                    else if (_selectionMode) ...[
+                                      _GalleryGlassIconButton(
+                                        icon: Icons.cloud_upload,
+                                        tooltip: 'Upload selected',
+                                        onPressed: _selectedAssetIds.isEmpty
+                                            ? null
+                                            : () => _uploadSelectedAssets(),
+                                      ),
+                                      const SizedBox(width: 12),
+                                      _GalleryGlassIconButton(
+                                        icon: Icons.close,
+                                        tooltip: 'Clear selection',
+                                        onPressed: _clearSelection,
+                                      ),
+                                    ] else
+                                      _GalleryGlassIconButton(
+                                        icon: Icons.refresh,
+                                        tooltip: 'Refresh',
+                                        onPressed: _isLoading
+                                            ? null
+                                            : () => _handleRefresh(),
+                                      ),
+                                  ],
+                                ),
+                              ),
+                            ),
+                          ],
+                        );
+                      },
                     ),
-                    actions: [
-                      if (_selectionMode) ...[
-                        IconButton(
-                          tooltip: 'Upload selected',
-                          onPressed: _selectedAssetIds.isEmpty || _isUploading
-                              ? null
-                              : () => _uploadSelectedAssets(),
-                          icon: const Icon(Icons.cloud_upload),
-                        ),
-                        IconButton(
-                          tooltip: 'Clear selection',
-                          onPressed: _isUploading ? null : _clearSelection,
-                          icon: const Icon(Icons.close),
-                        ),
-                      ] else ...[
-                        IconButton(
-                          tooltip: 'Refresh',
-                          onPressed: _isLoading ? null : () => _handleRefresh(),
-                          icon: const Icon(Icons.refresh),
-                        ),
-                      ],
-                      const SizedBox(width: 12),
-                    ],
                   ),
                   SliverPadding(
                     padding: const EdgeInsets.symmetric(
@@ -730,4 +763,199 @@ class _GalleryPageState extends State<GalleryPage> {
     'Nov',
     'Dec',
   ];
+}
+
+class _GalleryGlassHeader extends StatelessWidget {
+  const _GalleryGlassHeader({
+    required this.asset,
+    required this.title,
+    required this.subtitle,
+  });
+
+  final AssetEntity? asset;
+  final String title;
+  final String subtitle;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final hasSubtitle = subtitle.trim().isNotEmpty;
+
+    return Stack(
+      fit: StackFit.expand,
+      children: [
+        _GalleryHeaderBackground(asset: asset),
+        Positioned.fill(
+          child: DecoratedBox(
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.topCenter,
+                end: Alignment.bottomCenter,
+                colors: [
+                  Colors.black.withValues(alpha: 0.55),
+                  Colors.black.withValues(alpha: 0.20),
+                  Colors.black.withValues(alpha: 0.05),
+                ],
+              ),
+            ),
+          ),
+        ),
+        Positioned(
+          left: 24,
+          right: 24,
+          bottom: 28,
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(28),
+            child: BackdropFilter(
+              filter: ImageFilter.blur(sigmaX: 24, sigmaY: 24),
+              child: Container(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 24,
+                  vertical: 20,
+                ),
+                decoration: BoxDecoration(
+                  color: Colors.white.withValues(alpha: 0.12),
+                  border: Border.all(
+                    color: Colors.white.withValues(alpha: 0.18),
+                  ),
+                  borderRadius: BorderRadius.circular(28),
+                  boxShadow: const [
+                    BoxShadow(
+                      color: Colors.black26,
+                      blurRadius: 20,
+                      offset: Offset(0, 10),
+                    ),
+                  ],
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      title,
+                      style: theme.textTheme.headlineSmall?.copyWith(
+                        color: Colors.white,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                    if (hasSubtitle) ...[
+                      const SizedBox(height: 6),
+                      Text(
+                        subtitle,
+                        style: theme.textTheme.bodyMedium?.copyWith(
+                          color: Colors.white.withValues(alpha: 0.85),
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _GalleryHeaderBackground extends StatelessWidget {
+  const _GalleryHeaderBackground({this.asset});
+
+  final AssetEntity? asset;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    if (asset == null) {
+      return Container(
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+            colors: [theme.colorScheme.primary, theme.colorScheme.secondary],
+          ),
+        ),
+      );
+    }
+
+    return Image(
+      image: AssetEntityImageProvider(
+        asset!,
+        thumbnailSize: const ThumbnailSize.square(1200),
+        isOriginal: false,
+      ),
+      fit: BoxFit.cover,
+    );
+  }
+}
+
+class _GalleryGlassIconButton extends StatelessWidget {
+  const _GalleryGlassIconButton({
+    required this.icon,
+    this.onPressed,
+    this.tooltip,
+  });
+
+  final IconData icon;
+  final VoidCallback? onPressed;
+  final String? tooltip;
+
+  @override
+  Widget build(BuildContext context) {
+    final enabled = onPressed != null;
+    final button = ClipOval(
+      child: BackdropFilter(
+        filter: ImageFilter.blur(sigmaX: 12, sigmaY: 12),
+        child: Material(
+          color: Colors.white.withValues(alpha: enabled ? 0.18 : 0.08),
+          child: InkWell(
+            onTap: onPressed,
+            child: SizedBox(
+              width: 40,
+              height: 40,
+              child: Icon(
+                icon,
+                color: Colors.white.withValues(alpha: enabled ? 1 : 0.4),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+
+    if (tooltip == null || tooltip!.isEmpty) {
+      return button;
+    }
+    return Tooltip(message: tooltip!, child: button);
+  }
+}
+
+class _GalleryGlassProgressIndicator extends StatelessWidget {
+  const _GalleryGlassProgressIndicator();
+
+  @override
+  Widget build(BuildContext context) {
+    return ClipOval(
+      child: BackdropFilter(
+        filter: ImageFilter.blur(sigmaX: 12, sigmaY: 12),
+        child: Container(
+          width: 40,
+          height: 40,
+          alignment: Alignment.center,
+          decoration: BoxDecoration(
+            color: Colors.white.withValues(alpha: 0.18),
+            shape: BoxShape.circle,
+          ),
+          child: const SizedBox(
+            width: 20,
+            height: 20,
+            child: CircularProgressIndicator(
+              strokeWidth: 2,
+              valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
 }
