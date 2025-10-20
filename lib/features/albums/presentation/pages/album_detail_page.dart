@@ -12,6 +12,7 @@ import 'package:flutter_cloud_sync_photos/core/network/api_exception.dart';
 import '../../../gallery/data/services/upload_metadata_store.dart';
 import '../../../gallery/presentation/pages/photo_detail_page.dart';
 import '../../../gallery/presentation/widgets/gallery_section_list.dart';
+import '../../../settings/data/upload_preferences_store.dart';
 
 class AlbumDetailPage extends StatefulWidget {
   const AlbumDetailPage({
@@ -45,6 +46,7 @@ class _AlbumDetailPageState extends State<AlbumDetailPage> {
 
   final ScrollController _scrollController = ScrollController();
   final UploadMetadataStore _metadataStore = UploadMetadataStore();
+  final UploadPreferencesStore _uploadPreferences = uploadPreferencesStore;
 
   List<AssetEntity> _assets = const [];
   List<GallerySection> _sections = const [];
@@ -181,6 +183,7 @@ class _AlbumDetailPageState extends State<AlbumDetailPage> {
       _isUploading = true;
     });
 
+    final preferences = await _uploadPreferences.load();
     messenger.hideCurrentSnackBar();
     messenger.showSnackBar(const SnackBar(content: Text('Uploading photo...')));
 
@@ -207,9 +210,9 @@ class _AlbumDetailPageState extends State<AlbumDetailPage> {
       final response = await globalAuthService.uploadFile(
         fileName: sanitizedName,
         bytes: uploadBytes,
-        isPrivate: true,
+        isPrivate: preferences.isPrivate,
         folder: folder,
-        optimize: false,
+        optimize: preferences.optimize,
       );
       final contentHash = _findContentHash(response);
       if (contentHash != null) {

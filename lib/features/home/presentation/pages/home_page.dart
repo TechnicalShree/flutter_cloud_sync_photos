@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../../gallery/presentation/pages/gallery_page.dart';
 import '../../../albums/presentation/pages/album_page.dart';
+import '../../../settings/presentation/pages/settings_page.dart';
 
 class HomePage extends StatefulWidget {
   const HomePage({super.key});
@@ -24,6 +25,11 @@ class _HomePageState extends State<HomePage> {
       selectedIcon: Icon(Icons.photo_album),
       label: 'Albums',
     ),
+    NavigationDestination(
+      icon: Icon(Icons.settings_outlined),
+      selectedIcon: Icon(Icons.settings),
+      label: 'Settings',
+    ),
   ];
 
   int _currentIndex = 0;
@@ -33,7 +39,11 @@ class _HomePageState extends State<HomePage> {
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
 
-    final pages = [const GalleryPage(), const AlbumPage()];
+    final pages = [
+      const GalleryPage(),
+      const AlbumPage(),
+      const SettingsPage(),
+    ];
 
     return PopScope(
       canPop: _currentIndex == 0,

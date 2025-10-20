@@ -8,6 +8,7 @@ import 'package:photo_manager/photo_manager.dart';
 import '../../../auth/data/models/photo_media.dart';
 import '../../../auth/data/services/auth_service.dart';
 import '../../data/services/upload_metadata_store.dart';
+import '../../../settings/data/upload_preferences_store.dart';
 import '../pages/photo_detail_page.dart';
 import '../widgets/gallery_empty_state.dart';
 import '../widgets/gallery_loading_state.dart';
@@ -33,6 +34,7 @@ class _GalleryPageState extends State<GalleryPage> {
   bool _selectionMode = false;
 
   final UploadMetadataStore _metadataStore = UploadMetadataStore();
+  final UploadPreferencesStore _uploadPreferences = uploadPreferencesStore;
   final Set<String> _selectedAssetIds = <String>{};
 
   List<AssetEntity> _assets = const <AssetEntity>[];
@@ -290,6 +292,7 @@ class _GalleryPageState extends State<GalleryPage> {
     }
 
     final messenger = ScaffoldMessenger.of(context);
+    final preferences = await _uploadPreferences.load();
 
     setState(() {
       _isUploading = true;
@@ -310,7 +313,7 @@ class _GalleryPageState extends State<GalleryPage> {
         const SnackBar(content: Text('Uploading photo...')),
       );
 
-      await _performUpload(asset);
+      await _performUpload(asset, preferences: preferences);
 
       messenger.hideCurrentSnackBar();
       messenger.showSnackBar(const SnackBar(content: Text('Upload complete')));
@@ -345,6 +348,7 @@ class _GalleryPageState extends State<GalleryPage> {
       _isUploading = true;
     });
 
+    final preferences = await _uploadPreferences.load();
     messenger.hideCurrentSnackBar();
     messenger.showSnackBar(
       SnackBar(
@@ -370,7 +374,7 @@ class _GalleryPageState extends State<GalleryPage> {
         }
 
         try {
-          await _performUpload(asset);
+          await _performUpload(asset, preferences: preferences);
           uploadedCount += 1;
         } on ApiException catch (error) {
           failedCount += 1;
@@ -404,7 +408,11 @@ class _GalleryPageState extends State<GalleryPage> {
     }
   }
 
-  Future<void> _performUpload(AssetEntity asset) async {
+  Future<void> _performUpload(
+    AssetEntity asset, {
+    UploadPreferences? preferences,
+  }) async {
+    final prefs = preferences ?? await _uploadPreferences.load();
     final bytes = await _loadAssetBytes(asset);
 
     final rawTitle = await asset.titleAsync;
@@ -418,9 +426,9 @@ class _GalleryPageState extends State<GalleryPage> {
     final response = await globalAuthService.uploadFile(
       fileName: sanitizedName,
       bytes: bytes,
-      isPrivate: true,
+      isPrivate: prefs.isPrivate,
       folder: folder,
-      optimize: false,
+      optimize: prefs.optimize,
     );
 
     final contentHash = _findContentHash(response);
