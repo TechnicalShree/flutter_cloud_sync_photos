@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
@@ -16,25 +17,145 @@ class PhotoDetailPage extends StatefulWidget {
   State<PhotoDetailPage> createState() => _PhotoDetailPageState();
 }
 
-class _PhotoDetailPageState extends State<PhotoDetailPage> {
+class _PhotoDetailPageState extends State<PhotoDetailPage>
+    with SingleTickerProviderStateMixin {
   late final Future<_PhotoMetadata> _metadataFuture;
   final UploadMetadataStore _uploadMetadataStore = UploadMetadataStore();
   String? _contentHash;
   bool _loadingContentHash = true;
   bool _isUnsyncing = false;
-  bool _showDetails = false;
+  late final AnimationController _detailsController;
+  late final Animation<double> _detailsOpacity;
+  late final Animation<Offset> _detailsOffset;
+  bool _showTapHint = true;
+  double _dragToDismissExtent = 0;
 
   @override
   void initState() {
     super.initState();
+    _detailsController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 280),
+      reverseDuration: const Duration(milliseconds: 220),
+    );
+    _detailsOpacity = CurvedAnimation(
+      parent: _detailsController,
+      curve: Curves.easeOutCubic,
+      reverseCurve: Curves.easeInCubic,
+    );
+    _detailsOffset = Tween<Offset>(
+      begin: const Offset(0, 0.12),
+      end: Offset.zero,
+    ).animate(_detailsOpacity);
     _metadataFuture = _PhotoMetadata.fromAsset(widget.asset);
     _loadContentHash();
+    _scheduleTapHintDismissal();
+  }
+
+  @override
+  void dispose() {
+    _detailsController.dispose();
+    super.dispose();
+  }
+
+  void _scheduleTapHintDismissal() {
+    Future<void>.delayed(const Duration(seconds: 5)).then((_) {
+      if (!mounted || !_showTapHint) {
+        return;
+      }
+      setState(() {
+        _showTapHint = false;
+      });
+    });
+  }
+
+  void _handleImageTap() {
+    _toggleDetails();
+  }
+
+  void _toggleDetails() {
+    final shouldOpen = _detailsController.value < 0.5;
+    if (shouldOpen) {
+      _detailsController.forward();
+    } else {
+      _detailsController.reverse();
+    }
+    _dragToDismissExtent = 0;
+    if (_showTapHint) {
+      setState(() {
+        _showTapHint = false;
+      });
+    }
+  }
+
+  void _handleDetailsDragUpdate(DragUpdateDetails details, double height) {
+    if (height <= 0) {
+      return;
+    }
+    final primaryDelta = details.primaryDelta ?? details.delta.dy;
+    if (_detailsController.value <= 0.001 && primaryDelta > 0) {
+      _dragToDismissExtent += primaryDelta;
+      if (_dragToDismissExtent > height * 0.18) {
+        _dismissPage();
+      }
+      return;
+    }
+    if (primaryDelta < 0) {
+      _dragToDismissExtent = 0;
+    }
+    final fraction = primaryDelta / height;
+    final newValue = (_detailsController.value - fraction).clamp(0.0, 1.0);
+    _detailsController.value = newValue;
+    if (_showTapHint) {
+      setState(() {
+        _showTapHint = false;
+      });
+    }
+  }
+
+  void _handleDetailsDragEnd(DragEndDetails details) {
+    final velocity = details.primaryVelocity ?? details.velocity.pixelsPerSecond.dy;
+    if (_detailsController.value <= 0.001) {
+      if (velocity != null && velocity > 550) {
+        _dismissPage();
+        return;
+      }
+      if (_dragToDismissExtent > 72) {
+        _dismissPage();
+        return;
+      }
+      _dragToDismissExtent = 0;
+    }
+    if (velocity != null) {
+      if (velocity > 400) {
+        _dragToDismissExtent = 0;
+        _detailsController.reverse();
+        return;
+      }
+      if (velocity < -400) {
+        _dragToDismissExtent = 0;
+        _detailsController.forward();
+        return;
+      }
+    }
+    if (_detailsController.value < 0.5) {
+      _detailsController.reverse();
+    } else {
+      _detailsController.forward();
+    }
+    _dragToDismissExtent = 0;
+  }
+
+  void _dismissPage() {
+    if (!mounted) {
+      return;
+    }
+    _dragToDismissExtent = 0;
+    Navigator.of(context).maybePop();
   }
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-
     return Scaffold(
       backgroundColor: Colors.black,
       appBar: AppBar(
@@ -53,12 +174,26 @@ class _PhotoDetailPageState extends State<PhotoDetailPage> {
         actions: [
           Padding(
             padding: const EdgeInsets.only(right: 12),
-            child: IconButton(
-              tooltip: _showDetails ? 'Hide details' : 'Show details',
-              onPressed: () {
-                setState(() => _showDetails = !_showDetails);
+            child: AnimatedBuilder(
+              animation: _detailsController,
+              builder: (context, child) {
+                final isOpen = _detailsController.value > 0.05;
+                return IconButton(
+                  tooltip: isOpen ? 'Hide details' : 'Show details',
+                  onPressed: _toggleDetails,
+                  icon: AnimatedSwitcher(
+                    duration: const Duration(milliseconds: 220),
+                    transitionBuilder: (child, animation) => FadeTransition(
+                      opacity: animation,
+                      child: ScaleTransition(scale: animation, child: child),
+                    ),
+                    child: Icon(
+                      isOpen ? Icons.close : Icons.info_outline,
+                      key: ValueKey<bool>(isOpen),
+                    ),
+                  ),
+                );
               },
-              icon: Icon(_showDetails ? Icons.close : Icons.info_outline),
             ),
           ),
         ],
@@ -68,33 +203,42 @@ class _PhotoDetailPageState extends State<PhotoDetailPage> {
           Positioned.fill(
             child: Hero(
               tag: widget.asset.id,
-              child: LayoutBuilder(
-                builder: (context, constraints) {
-                  return ClipRect(
-                    child: InteractiveViewer(
-                      minScale: 1,
-                      maxScale: 6,
-                      boundaryMargin: EdgeInsets.zero,
-                      child: SizedBox(
-                        width: constraints.maxWidth,
-                        height: constraints.maxHeight,
-                        child: DecoratedBox(
-                          decoration: const BoxDecoration(color: Colors.black),
-                          child: FittedBox(
-                            fit: BoxFit.contain,
-                            clipBehavior: Clip.hardEdge,
-                            child: Image(
-                              image: AssetEntityImageProvider(
-                                widget.asset,
-                                isOriginal: true,
+              transitionOnUserGestures: true,
+              child: Material(
+                color: Colors.transparent,
+                child: GestureDetector(
+                  behavior: HitTestBehavior.translucent,
+                  onTap: _handleImageTap,
+                  child: LayoutBuilder(
+                    builder: (context, constraints) {
+                      return ClipRect(
+                        child: InteractiveViewer(
+                          minScale: 1,
+                          maxScale: 6,
+                          boundaryMargin: EdgeInsets.zero,
+                          child: SizedBox(
+                            width: constraints.maxWidth,
+                            height: constraints.maxHeight,
+                            child: DecoratedBox(
+                              decoration:
+                                  const BoxDecoration(color: Colors.black),
+                              child: FittedBox(
+                                fit: BoxFit.contain,
+                                clipBehavior: Clip.hardEdge,
+                                child: Image(
+                                  image: AssetEntityImageProvider(
+                                    widget.asset,
+                                    isOriginal: true,
+                                  ),
+                                ),
                               ),
                             ),
                           ),
                         ),
-                      ),
-                    ),
-                  );
-                },
+                      );
+                    },
+                  ),
+                ),
               ),
             ),
           ),
@@ -119,104 +263,211 @@ class _PhotoDetailPageState extends State<PhotoDetailPage> {
           ),
           Align(
             alignment: Alignment.bottomCenter,
-            child: IgnorePointer(
-              ignoring: !_showDetails,
-              child: AnimatedSlide(
-                offset: _showDetails ? Offset.zero : const Offset(0, 1),
-                duration: const Duration(milliseconds: 220),
-                curve: Curves.easeOut,
-                child: AnimatedOpacity(
-                  opacity: _showDetails ? 1 : 0,
-                  duration: const Duration(milliseconds: 220),
-                  curve: Curves.easeOut,
-                  child: FutureBuilder<_PhotoMetadata>(
-                    future: _metadataFuture,
-                    builder: (context, snapshot) {
-                      final metadata = snapshot.data;
-                      return SafeArea(
-                        top: false,
-                        child: Container(
-                          width: double.infinity,
-                          decoration: BoxDecoration(
-                            color: theme.colorScheme.surface,
-                            borderRadius: const BorderRadius.vertical(
-                              top: Radius.circular(24),
-                            ),
-                            boxShadow: [
-                              BoxShadow(
-                                blurRadius: 24,
-                                offset: const Offset(0, -8),
-                                color: Colors.black.withValues(alpha: 0.35),
-                              ),
-                            ],
+            child: AnimatedBuilder(
+              animation: _detailsController,
+              builder: (context, child) {
+                final shouldShowHint =
+                    _showTapHint && _detailsController.value < 0.05;
+                return IgnorePointer(
+                  ignoring: true,
+                  child: AnimatedOpacity(
+                    opacity: shouldShowHint ? 1 : 0,
+                    duration: const Duration(milliseconds: 280),
+                    curve: Curves.easeOutCubic,
+                    child: child,
+                  ),
+                );
+              },
+              child: Padding(
+                padding: const EdgeInsets.only(bottom: 32),
+                child: DecoratedBox(
+                  decoration: BoxDecoration(
+                    color: Colors.black.withValues(alpha: 0.55),
+                    borderRadius: BorderRadius.circular(24),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black.withValues(alpha: 0.3),
+                        blurRadius: 16,
+                        offset: const Offset(0, 6),
+                      ),
+                    ],
+                  ),
+                  child: const Padding(
+                    padding:
+                        EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(Icons.touch_app, color: Colors.white, size: 18),
+                        SizedBox(width: 8),
+                        Text(
+                          'Tap photo for details',
+                          style: TextStyle(
+                            color: Colors.white,
+                            fontWeight: FontWeight.w600,
                           ),
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 24,
-                            vertical: 20,
-                          ),
-                          child:
-                              snapshot.connectionState ==
-                                  ConnectionState.waiting
-                              ? const Center(
-                                  child: SizedBox(
-                                    height: 24,
-                                    width: 24,
-                                    child: CircularProgressIndicator(
-                                      strokeWidth: 2.5,
-                                    ),
-                                  ),
-                                )
-                              : Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  mainAxisSize: MainAxisSize.min,
-                                  children: [
-                                    Text(
-                                      'Details',
-                                      style: theme.textTheme.titleMedium
-                                          ?.copyWith(
-                                            fontWeight: FontWeight.w600,
-                                          ),
-                                    ),
-                                    const SizedBox(height: 16),
-                                    _MetadataRow(
-                                      label: 'Captured',
-                                      value:
-                                          metadata?.formattedDate ?? 'Unknown',
-                                    ),
-                                    const SizedBox(height: 12),
-                                    _MetadataRow(
-                                      label: 'Resolution',
-                                      value: metadata?.resolution ?? '—',
-                                    ),
-                                    const SizedBox(height: 12),
-                                    _MetadataRow(
-                                      label: 'File name',
-                                      value: metadata?.fileName ?? '—',
-                                    ),
-                                    const SizedBox(height: 12),
-                                    _MetadataRow(
-                                      label: 'File size',
-                                      value: metadata?.fileSize ?? '—',
-                                    ),
-                                    if (metadata?.location != null) ...[
-                                      const SizedBox(height: 12),
-                                      _MetadataRow(
-                                        label: 'Location',
-                                        value: metadata!.location!,
-                                      ),
-                                    ],
-                                    _buildUnsyncSection(),
-                                  ],
-                                ),
                         ),
-                      );
-                    },
+                      ],
+                    ),
                   ),
                 ),
               ),
             ),
           ),
+          Align(
+            alignment: Alignment.bottomCenter,
+            child: AnimatedBuilder(
+              animation: _detailsController,
+              builder: (context, child) {
+                final ignore = _detailsController.value <= 0.001;
+                return IgnorePointer(
+                  ignoring: ignore,
+                  child: FadeTransition(
+                    opacity: _detailsOpacity,
+                    child: SlideTransition(
+                      position: _detailsOffset,
+                      child: _buildDetailsSheet(context),
+                    ),
+                  ),
+                );
+              },
+            ),
+          ),
         ],
+      ),
+    );
+  }
+
+  Widget _buildDetailsSheet(BuildContext context) {
+    final theme = Theme.of(context);
+    return SafeArea(
+      top: false,
+      child: Padding(
+        padding: const EdgeInsets.only(left: 12, right: 12, bottom: 16),
+        child: LayoutBuilder(
+          builder: (context, constraints) {
+            final availableHeight = constraints.hasBoundedHeight &&
+                    constraints.maxHeight.isFinite &&
+                    constraints.maxHeight > 0
+                ? constraints.maxHeight
+                : MediaQuery.of(context).size.height * 0.6;
+            return GestureDetector(
+              behavior: HitTestBehavior.opaque,
+              onVerticalDragUpdate: (details) =>
+                  _handleDetailsDragUpdate(details, availableHeight),
+              onVerticalDragEnd: _handleDetailsDragEnd,
+              child: Container(
+                width: double.infinity,
+                decoration: BoxDecoration(
+                  color: theme.colorScheme.surface,
+                  borderRadius: const BorderRadius.vertical(
+                    top: Radius.circular(26),
+                  ),
+                  boxShadow: [
+                    BoxShadow(
+                      blurRadius: 24,
+                      offset: const Offset(0, -10),
+                      color: Colors.black.withValues(alpha: 0.35),
+                    ),
+                  ],
+                ),
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(24, 16, 24, 24),
+                  child: FutureBuilder<_PhotoMetadata>(
+                    future: _metadataFuture,
+                    builder: (context, snapshot) {
+                      final metadata = snapshot.data;
+                      final isLoading =
+                          snapshot.connectionState == ConnectionState.waiting;
+                      return Column(
+                        mainAxisSize: MainAxisSize.min,
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Align(
+                            alignment: Alignment.center,
+                            child: Container(
+                              width: 42,
+                              height: 4,
+                              decoration: BoxDecoration(
+                                color: theme.colorScheme.onSurfaceVariant
+                                    .withValues(alpha: 0.25),
+                                borderRadius: BorderRadius.circular(12),
+                              ),
+                            ),
+                          ),
+                          const SizedBox(height: 16),
+                          AnimatedSwitcher(
+                            duration: const Duration(milliseconds: 220),
+                            switchInCurve: Curves.easeOutCubic,
+                            switchOutCurve: Curves.easeInCubic,
+                            child: isLoading
+                                ? const SizedBox(
+                                    key: ValueKey('details-loading'),
+                                    height: 112,
+                                    child: Center(
+                                      child: SizedBox(
+                                        height: 28,
+                                        width: 28,
+                                        child: CircularProgressIndicator(
+                                          strokeWidth: 2.5,
+                                        ),
+                                      ),
+                                    ),
+                                  )
+                                : Column(
+                                    key: const ValueKey('details-ready'),
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      Text(
+                                        'Details',
+                                        style: theme.textTheme.titleMedium
+                                            ?.copyWith(
+                                          fontWeight: FontWeight.w600,
+                                        ),
+                                      ),
+                                      const SizedBox(height: 16),
+                                      _MetadataRow(
+                                        label: 'Captured',
+                                        value: metadata?.formattedDate ??
+                                            'Unknown',
+                                      ),
+                                      const SizedBox(height: 12),
+                                      _MetadataRow(
+                                        label: 'Resolution',
+                                        value: metadata?.resolution ?? '—',
+                                      ),
+                                      const SizedBox(height: 12),
+                                      _MetadataRow(
+                                        label: 'File name',
+                                        value: metadata?.fileName ?? '—',
+                                      ),
+                                      const SizedBox(height: 12),
+                                      _MetadataRow(
+                                        label: 'File size',
+                                        value: metadata?.fileSize ?? '—',
+                                      ),
+                                      if (metadata?.location != null) ...[
+                                        const SizedBox(height: 12),
+                                        _MetadataRow(
+                                          label: 'Location',
+                                          value: metadata!.location!,
+                                        ),
+                                      ],
+                                      _buildUnsyncSection(),
+                                    ],
+                                  ),
+                          ),
+                        ],
+                      );
+                    },
+                  ),
+                ),
+              ),
+            );
+          },
+        ),
       ),
     );
   }
