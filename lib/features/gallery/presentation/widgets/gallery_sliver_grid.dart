@@ -8,6 +8,7 @@ import '../../data/services/upload_metadata_store.dart';
 
 const double _gridSpacing = 8.0;
 const double _tileRadius = 12.0;
+const Duration _tileAnimationDuration = Duration(milliseconds: 220);
 
 class GallerySliverGrid extends StatelessWidget {
   const GallerySliverGrid({
@@ -106,6 +107,24 @@ class GalleryTile extends StatelessWidget {
             !isUploaded &&
             !uploading;
 
+        final Widget topRightChild;
+        if (uploading) {
+          topRightChild = const _UploadProgressDot(key: ValueKey('uploading'));
+        } else if (showSelection) {
+          topRightChild = _SelectionIndicator(
+            key: ValueKey<bool>(isSelected),
+            selected: isSelected,
+          );
+        } else if (!isUploaded && !selectionMode && onUpload != null) {
+          topRightChild = _GlassCircleButton(
+            key: const ValueKey('upload'),
+            icon: Icons.cloud_upload_outlined,
+            onPressed: onUpload!,
+          );
+        } else {
+          topRightChild = const SizedBox.shrink(key: ValueKey('empty'));
+        }
+
         return GestureDetector(
           onTap: effectiveOnTap,
           onLongPress: effectiveOnLongPress,
@@ -135,50 +154,61 @@ class GalleryTile extends StatelessWidget {
                     child: Image(
                       image: AssetEntityImageProvider(
                         asset,
-                      isOriginal: false,
-                      thumbnailSize: const ThumbnailSize.square(400),
+                        isOriginal: false,
+                        thumbnailSize: const ThumbnailSize.square(400),
+                      ),
+                      fit: BoxFit.cover,
                     ),
-                    fit: BoxFit.cover,
                   ),
-                ),
-                _GradientOverlay(theme: theme),
-                if (isSelected)
+                  _GradientOverlay(theme: theme),
                   Positioned.fill(
-                    child: DecoratedBox(
-                      decoration: BoxDecoration(
-                        color: Colors.black.withValues(alpha: 0.26),
+                    child: IgnorePointer(
+                      ignoring: true,
+                      child: AnimatedOpacity(
+                        duration: _tileAnimationDuration,
+                        curve: Curves.easeInOut,
+                        opacity: isSelected ? 1 : 0,
+                        child: DecoratedBox(
+                          decoration: BoxDecoration(
+                            color: Colors.black.withValues(alpha: 0.26),
+                          ),
+                        ),
                       ),
                     ),
                   ),
-                if (asset.isFavorite)
-                  const Positioned(
-                    top: 8,
-                    left: 8,
-                    child: Icon(Icons.favorite, size: 20, color: Colors.white),
-                  ),
-                if (uploading)
-                  const Positioned(
-                    top: 8,
-                    right: 8,
-                    child: _UploadProgressDot(),
-                  )
-                else if (showSelection)
+                  if (asset.isFavorite)
+                    const Positioned(
+                      top: 8,
+                      left: 8,
+                      child: Icon(Icons.favorite, size: 20, color: Colors.white),
+                    ),
                   Positioned(
                     top: 8,
                     right: 8,
-                    child: _SelectionIndicator(selected: isSelected),
-                  ),
-                if (isUploaded)
-                  const Positioned(bottom: 10, left: 10, child: _SyncedBadge()),
-                if (!isUploaded && !selectionMode && onUpload != null && !uploading)
-                  Positioned(
-                    top: 8,
-                    right: 8,
-                    child: _GlassCircleButton(
-                      icon: Icons.cloud_upload_outlined,
-                      onPressed: onUpload!,
+                    child: AnimatedSwitcher(
+                      duration: _tileAnimationDuration,
+                      switchInCurve: Curves.easeOut,
+                      switchOutCurve: Curves.easeIn,
+                      transitionBuilder: (child, animation) {
+                        final fadeAnimation = CurvedAnimation(
+                          parent: animation,
+                          curve: Curves.easeOut,
+                          reverseCurve: Curves.easeIn,
+                        );
+                        return FadeTransition(
+                          opacity: fadeAnimation,
+                          child: ScaleTransition(
+                            scale: Tween<double>(begin: 0.9, end: 1)
+                                .animate(fadeAnimation),
+                            child: child,
+                          ),
+                        );
+                      },
+                      child: topRightChild,
                     ),
                   ),
+                  if (isUploaded)
+                    const Positioned(bottom: 10, left: 10, child: _SyncedBadge()),
                 ],
               ),
             ),
@@ -216,7 +246,7 @@ class _GradientOverlay extends StatelessWidget {
 }
 
 class _GlassCircleButton extends StatelessWidget {
-  const _GlassCircleButton({required this.icon, required this.onPressed});
+  const _GlassCircleButton({super.key, required this.icon, required this.onPressed});
 
   final IconData icon;
   final VoidCallback onPressed;
@@ -244,7 +274,7 @@ class _GlassCircleButton extends StatelessWidget {
 }
 
 class _UploadProgressDot extends StatelessWidget {
-  const _UploadProgressDot();
+  const _UploadProgressDot({super.key});
 
   @override
   Widget build(BuildContext context) {
@@ -297,14 +327,17 @@ class _SyncedBadge extends StatelessWidget {
 }
 
 class _SelectionIndicator extends StatelessWidget {
-  const _SelectionIndicator({required this.selected});
+  const _SelectionIndicator({super.key, required this.selected});
 
   final bool selected;
 
   @override
   Widget build(BuildContext context) {
     final colorScheme = Theme.of(context).colorScheme;
-    return DecoratedBox(
+    return AnimatedContainer(
+      duration: _tileAnimationDuration,
+      curve: Curves.easeInOut,
+      padding: const EdgeInsets.all(4),
       decoration: BoxDecoration(
         shape: BoxShape.circle,
         color: selected
@@ -312,11 +345,36 @@ class _SelectionIndicator extends StatelessWidget {
             : Colors.white.withValues(alpha: 0.2),
         border: Border.all(color: Colors.white, width: 2),
       ),
-      child: Padding(
-        padding: const EdgeInsets.all(4),
+      child: AnimatedSwitcher(
+        duration: _tileAnimationDuration,
+        switchInCurve: Curves.easeOut,
+        switchOutCurve: Curves.easeIn,
+        transitionBuilder: (child, animation) {
+          final curvedAnimation = CurvedAnimation(
+            parent: animation,
+            curve: Curves.easeOutBack,
+            reverseCurve: Curves.easeIn,
+          );
+          return FadeTransition(
+            opacity: curvedAnimation,
+            child: ScaleTransition(
+              scale: Tween<double>(begin: 0.8, end: 1).animate(curvedAnimation),
+              child: child,
+            ),
+          );
+        },
         child: selected
-            ? const Icon(Icons.check, size: 14, color: Colors.white)
-            : const SizedBox(width: 14, height: 14),
+            ? const SizedBox(
+                key: ValueKey('selected'),
+                width: 14,
+                height: 14,
+                child: Icon(Icons.check, size: 14, color: Colors.white),
+              )
+            : const SizedBox(
+                key: ValueKey('unselected'),
+                width: 14,
+                height: 14,
+              ),
       ),
     );
   }
