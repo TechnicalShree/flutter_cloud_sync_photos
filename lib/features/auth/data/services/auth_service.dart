@@ -8,6 +8,7 @@ import 'package:http/http.dart' as http;
 import 'session_manager.dart';
 import '../../domain/models/user_details.dart';
 import '../models/photo_media.dart';
+import '../../../../core/utils/folder_path_builder.dart';
 
 enum AuthStatus { authenticated, unauthenticated, offline }
 
@@ -253,18 +254,8 @@ class AuthService {
   }
 
   String buildFolderPath(PhotoMedia photo) {
-    final albumRaw = photo.bucketDisplayName?.trim() ?? '';
-    final albumSegment = albumRaw
-        .replaceAll('/', '_')
-        .replaceAll('\\', '_')
-        .ifEmpty('Unsorted');
-
-    return albumSegment;
+    return defaultFolderPathResolver(photo.bucketDisplayName);
   }
-}
-
-extension on String {
-  String ifEmpty(String fallback) => isEmpty ? fallback : this;
 }
 
 final AuthService globalAuthService = AuthService();

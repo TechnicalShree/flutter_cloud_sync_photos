@@ -5,8 +5,8 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter_cloud_sync_photos/core/network/api_exception.dart';
 import 'package:photo_manager/photo_manager.dart';
 
-import '../../../auth/data/models/photo_media.dart';
 import '../../../auth/data/services/auth_service.dart';
+import '../../../../core/utils/folder_path_builder.dart';
 import '../../../settings/data/upload_preferences_store.dart';
 import 'upload_metadata_store.dart';
 
@@ -62,13 +62,16 @@ class GalleryUploadQueue extends ChangeNotifier {
     UploadMetadataStore? metadataStore,
     UploadPreferencesStore? preferencesStore,
     AuthService? authService,
+    FolderPathResolver? folderPathResolver,
   })  : _metadataStore = metadataStore ?? UploadMetadataStore(),
         _preferencesStore = preferencesStore ?? uploadPreferencesStore,
-        _authService = authService ?? globalAuthService;
+        _authService = authService ?? globalAuthService,
+        _folderPathResolver = folderPathResolver ?? defaultFolderPathResolver;
 
   final UploadMetadataStore _metadataStore;
   final UploadPreferencesStore _preferencesStore;
   final AuthService _authService;
+  final FolderPathResolver _folderPathResolver;
 
   final Map<String, UploadJob> _jobs = <String, UploadJob>{};
   final Queue<UploadJob> _queue = Queue<UploadJob>();
@@ -249,25 +252,17 @@ class GalleryUploadQueue extends ChangeNotifier {
       if (segments.isNotEmpty) {
         final last = segments.last.trim();
         if (last.isNotEmpty) {
-          return _authService.buildFolderPath(
-            PhotoMedia(bucketDisplayName: last),
-          );
+          return _folderPathResolver(last);
         }
       }
-      return _authService.buildFolderPath(
-        PhotoMedia(bucketDisplayName: sanitized),
-      );
+      return _folderPathResolver(sanitized);
     }
 
     if (fallbackAlbumName != null && fallbackAlbumName.trim().isNotEmpty) {
-      return _authService.buildFolderPath(
-        PhotoMedia(bucketDisplayName: fallbackAlbumName),
-      );
+      return _folderPathResolver(fallbackAlbumName);
     }
 
-    return _authService.buildFolderPath(
-      const PhotoMedia(bucketDisplayName: 'Unsorted'),
-    );
+    return _folderPathResolver(null);
   }
 
   Future<Uint8List> _loadAssetBytes(AssetEntity asset) async {
