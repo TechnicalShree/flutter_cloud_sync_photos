@@ -249,23 +249,23 @@ class GalleryUploadQueue extends ChangeNotifier {
       if (segments.isNotEmpty) {
         final last = segments.last.trim();
         if (last.isNotEmpty) {
-          return globalAuthService.buildFolderPath(
+          return _authService.buildFolderPath(
             PhotoMedia(bucketDisplayName: last),
           );
         }
       }
-      return globalAuthService.buildFolderPath(
+      return _authService.buildFolderPath(
         PhotoMedia(bucketDisplayName: sanitized),
       );
     }
 
     if (fallbackAlbumName != null && fallbackAlbumName.trim().isNotEmpty) {
-      return globalAuthService.buildFolderPath(
+      return _authService.buildFolderPath(
         PhotoMedia(bucketDisplayName: fallbackAlbumName),
       );
     }
 
-    return globalAuthService.buildFolderPath(
+    return _authService.buildFolderPath(
       const PhotoMedia(bucketDisplayName: 'Unsorted'),
     );
   }
