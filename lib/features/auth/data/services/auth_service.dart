@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:flutter_cloud_sync_photos/core/logging/upload_error_logger.dart';
 import 'package:flutter_cloud_sync_photos/core/network/api_client.dart' as network;
 import 'package:flutter_cloud_sync_photos/core/network/api_exception.dart';
 import 'package:flutter_cloud_sync_photos/core/network/network_config.dart';
@@ -18,13 +19,16 @@ class AuthService {
     network.ApiClient? apiClient,
     SessionManager? sessionManager,
     NetworkService? networkService,
-  }) : _apiClient = apiClient ?? network.apiClient,
-       _sessionManager = sessionManager ?? SessionManager(),
-       _networkService = networkService ?? NetworkService();
+    UploadErrorLogger? uploadErrorLogger,
+  })  : _apiClient = apiClient ?? network.apiClient,
+        _sessionManager = sessionManager ?? SessionManager(),
+        _networkService = networkService ?? NetworkService(),
+        _uploadErrorLogger = uploadErrorLogger ?? UploadErrorLogger();
 
   final network.ApiClient _apiClient;
   final SessionManager _sessionManager;
   final NetworkService _networkService;
+  final UploadErrorLogger _uploadErrorLogger;
   Map<String, String> _sessionCookies = const {};
   UserDetails? _userDetails;
 
@@ -343,11 +347,27 @@ class AuthService {
             await client.send(request).timeout(_apiClient.config.timeout);
         response = await http.Response.fromStream(streamed);
       } on TimeoutException catch (error) {
+        await _logChunkFailure(
+          session: session,
+          start: start,
+          bytesLength: bytes.length,
+          total: total,
+          contentHash: contentHash,
+          error: error,
+        );
         throw ApiException(
           message: 'Chunk upload timed out',
           body: error.toString(),
         );
       } on Exception catch (error) {
+        await _logChunkFailure(
+          session: session,
+          start: start,
+          bytesLength: bytes.length,
+          total: total,
+          contentHash: contentHash,
+          error: error,
+        );
         throw ApiException(
           message: 'Failed to upload chunk',
           body: error.toString(),
@@ -357,6 +377,15 @@ class AuthService {
       }
 
       if (response.statusCode < 200 || response.statusCode >= 300) {
+        await _logChunkFailure(
+          session: session,
+          start: start,
+          bytesLength: bytes.length,
+          total: total,
+          contentHash: contentHash,
+          statusCode: response.statusCode,
+          responseBody: response.body,
+        );
         throw ApiException(
           message: 'Chunk upload failed',
           statusCode: response.statusCode,
@@ -396,14 +425,39 @@ class AuthService {
       filename: '${session.sessionId}_${start}_chunk',
     );
 
-    final response = await _apiClient.sendMultipart<Map<String, dynamic>>(
-      path: ApiEndpoint.uploadChunk.path,
-      method: network.ApiMethod.put,
-      files: [file],
-      fields: fields,
-      parser: (data) =>
-          (data as Map<String, dynamic>? ?? <String, dynamic>{}),
-    );
+    late final network.ApiResponse<Map<String, dynamic>> response;
+    try {
+      response = await _apiClient.sendMultipart<Map<String, dynamic>>(
+        path: ApiEndpoint.uploadChunk.path,
+        method: network.ApiMethod.put,
+        files: [file],
+        fields: fields,
+        parser: (data) =>
+            (data as Map<String, dynamic>? ?? <String, dynamic>{}),
+      );
+    } on ApiException catch (error) {
+      await _logChunkFailure(
+        session: session,
+        start: start,
+        bytesLength: bytes.length,
+        total: total,
+        contentHash: contentHash,
+        statusCode: error.statusCode,
+        error: error.message,
+        responseBody: error.body?.toString(),
+      );
+      rethrow;
+    } catch (error) {
+      await _logChunkFailure(
+        session: session,
+        start: start,
+        bytesLength: bytes.length,
+        total: total,
+        contentHash: contentHash,
+        error: error,
+      );
+      rethrow;
+    }
 
     final dynamic payload = response.data['message'];
     final Map<String, dynamic> body =
@@ -440,6 +494,45 @@ class AuthService {
     } catch (_) {
       return const ResumableUploadCompletion();
     }
+  }
+
+  Future<void> _logChunkFailure({
+    required ResumableUploadSession session,
+    required int start,
+    required int bytesLength,
+    required int total,
+    String? contentHash,
+    int? statusCode,
+    Object? error,
+    String? responseBody,
+  }) async {
+    final end = bytesLength > 0 ? start + bytesLength - 1 : start;
+    final details = <String>[
+      'session=${session.sessionId}',
+      'range=$start-$end/$total',
+    ];
+    if (contentHash != null && contentHash.isNotEmpty) {
+      details.add('hash=$contentHash');
+    }
+    if (statusCode != null) {
+      details.add('status=$statusCode');
+    }
+    if (error != null) {
+      details.add('error=$error');
+    }
+    if (responseBody != null && responseBody.isNotEmpty) {
+      details.add('body=${_truncateForLog(responseBody)}');
+    }
+    await _uploadErrorLogger.logError(
+      'Chunk upload failed: ${details.join(', ')}',
+    );
+  }
+
+  String _truncateForLog(String value, [int maxLength = 500]) {
+    if (value.length <= maxLength) {
+      return value;
+    }
+    return '${value.substring(0, maxLength)}…';
   }
 }
 
