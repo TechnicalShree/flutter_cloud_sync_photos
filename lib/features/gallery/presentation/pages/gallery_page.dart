@@ -421,12 +421,13 @@ class _GalleryPageState extends State<GalleryPage> {
         }
       },
       child: Scaffold(
-        backgroundColor: theme.colorScheme.surface,
+        backgroundColor: theme.colorScheme.surfaceContainerLowest,
         body: Container(
           decoration: BoxDecoration(
             gradient: LinearGradient(
               colors: [
-                theme.colorScheme.primary.withValues(alpha: 0.08),
+                theme.colorScheme.primary.withValues(alpha: 0.06),
+                theme.colorScheme.surfaceContainerHigh,
                 theme.colorScheme.surface,
               ],
               begin: Alignment.topCenter,
@@ -512,7 +513,7 @@ class _GalleryPageState extends State<GalleryPage> {
                   ),
                   SliverPadding(
                     padding: const EdgeInsets.symmetric(
-                      horizontal: 24,
+                      horizontal: 20,
                       vertical: 16,
                     ),
                     sliver: _buildContent(theme),

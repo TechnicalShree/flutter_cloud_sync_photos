@@ -41,7 +41,9 @@ class GallerySectionList extends StatelessWidget {
       delegate: SliverChildBuilderDelegate((context, index) {
         final section = sections[index];
         return Padding(
-          padding: const EdgeInsets.only(bottom: 24),
+          padding: EdgeInsets.only(
+            bottom: index == sections.length - 1 ? 0 : 20,
+          ),
           child: _GallerySectionView(
             section: section,
             metadataStore: metadataStore,
@@ -89,42 +91,62 @@ class _GallerySectionView extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Padding(
-          padding: const EdgeInsets.symmetric(vertical: 8),
+          padding: const EdgeInsets.only(bottom: 12),
           child: Text(
             section.title,
             style: theme.textTheme.titleLarge?.copyWith(
-              fontWeight: FontWeight.w600,
+              fontWeight: FontWeight.w700,
+              letterSpacing: 0.15,
             ),
           ),
         ),
-        GridView.builder(
-          padding: EdgeInsets.zero,
-          shrinkWrap: true,
-          physics: const NeverScrollableScrollPhysics(),
-          gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-            crossAxisCount: 3,
-            mainAxisSpacing: 12,
-            crossAxisSpacing: 12,
+        DecoratedBox(
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(24),
+            color: theme.colorScheme.surfaceContainerHigh.withValues(alpha: 0.6),
+            border: Border.all(
+              color: theme.colorScheme.onSurface.withValues(alpha: 0.05),
+            ),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withValues(alpha: 0.08),
+                blurRadius: 20,
+                offset: const Offset(0, 12),
+              ),
+            ],
           ),
-          itemCount: section.assets.length,
-          itemBuilder: (context, index) {
-            final asset = section.assets[index];
-            return GalleryTile(
-              asset: asset,
-              theme: theme,
-              metadataStore: metadataStore,
-              selectionMode: selectionMode,
-              isSelected: selectedAssetIds.contains(asset.id),
-              isUploading: uploadingAssetIds.contains(asset.id),
-              showSelectionIndicator:
-                  !hideSelectionIndicatorAssetIds.contains(asset.id),
-              onTap: () => onAssetTap?.call(asset),
-              onLongPress: () => onAssetLongPress?.call(asset),
-              onUpload: onAssetUpload != null
-                  ? () => onAssetUpload?.call(asset)
-                  : null,
-            );
-          },
+          child: Padding(
+            padding: const EdgeInsets.all(12),
+            child: GridView.builder(
+              padding: EdgeInsets.zero,
+              shrinkWrap: true,
+              physics: const NeverScrollableScrollPhysics(),
+              gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                crossAxisCount: 3,
+                mainAxisSpacing: 8,
+                crossAxisSpacing: 8,
+              ),
+              itemCount: section.assets.length,
+              itemBuilder: (context, index) {
+                final asset = section.assets[index];
+                return GalleryTile(
+                  asset: asset,
+                  theme: theme,
+                  metadataStore: metadataStore,
+                  selectionMode: selectionMode,
+                  isSelected: selectedAssetIds.contains(asset.id),
+                  isUploading: uploadingAssetIds.contains(asset.id),
+                  showSelectionIndicator:
+                      !hideSelectionIndicatorAssetIds.contains(asset.id),
+                  onTap: () => onAssetTap?.call(asset),
+                  onLongPress: () => onAssetLongPress?.call(asset),
+                  onUpload: onAssetUpload != null
+                      ? () => onAssetUpload?.call(asset)
+                      : null,
+                );
+              },
+            ),
+          ),
         ),
       ],
     );
