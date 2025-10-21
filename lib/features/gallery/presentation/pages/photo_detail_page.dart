@@ -28,6 +28,7 @@ class _PhotoDetailPageState extends State<PhotoDetailPage>
   late final Animation<double> _detailsOpacity;
   late final Animation<Offset> _detailsOffset;
   bool _showTapHint = true;
+  double _dragToDismissExtent = 0;
 
   @override
   void initState() {
@@ -79,6 +80,7 @@ class _PhotoDetailPageState extends State<PhotoDetailPage>
     } else {
       _detailsController.reverse();
     }
+    _dragToDismissExtent = 0;
     if (_showTapHint) {
       setState(() {
         _showTapHint = false;
@@ -91,6 +93,16 @@ class _PhotoDetailPageState extends State<PhotoDetailPage>
       return;
     }
     final primaryDelta = details.primaryDelta ?? details.delta.dy;
+    if (_detailsController.value <= 0.001 && primaryDelta > 0) {
+      _dragToDismissExtent += primaryDelta;
+      if (_dragToDismissExtent > height * 0.18) {
+        _dismissPage();
+      }
+      return;
+    }
+    if (primaryDelta < 0) {
+      _dragToDismissExtent = 0;
+    }
     final fraction = primaryDelta / height;
     final newValue = (_detailsController.value - fraction).clamp(0.0, 1.0);
     _detailsController.value = newValue;
@@ -103,12 +115,25 @@ class _PhotoDetailPageState extends State<PhotoDetailPage>
 
   void _handleDetailsDragEnd(DragEndDetails details) {
     final velocity = details.primaryVelocity ?? details.velocity.pixelsPerSecond.dy;
+    if (_detailsController.value <= 0.001) {
+      if (velocity != null && velocity > 550) {
+        _dismissPage();
+        return;
+      }
+      if (_dragToDismissExtent > 72) {
+        _dismissPage();
+        return;
+      }
+      _dragToDismissExtent = 0;
+    }
     if (velocity != null) {
       if (velocity > 400) {
+        _dragToDismissExtent = 0;
         _detailsController.reverse();
         return;
       }
       if (velocity < -400) {
+        _dragToDismissExtent = 0;
         _detailsController.forward();
         return;
       }
@@ -118,6 +143,15 @@ class _PhotoDetailPageState extends State<PhotoDetailPage>
     } else {
       _detailsController.forward();
     }
+    _dragToDismissExtent = 0;
+  }
+
+  void _dismissPage() {
+    if (!mounted) {
+      return;
+    }
+    _dragToDismissExtent = 0;
+    Navigator.of(context).maybePop();
   }
 
   @override
@@ -169,6 +203,7 @@ class _PhotoDetailPageState extends State<PhotoDetailPage>
           Positioned.fill(
             child: Hero(
               tag: widget.asset.id,
+              transitionOnUserGestures: true,
               child: Material(
                 color: Colors.transparent,
                 child: GestureDetector(

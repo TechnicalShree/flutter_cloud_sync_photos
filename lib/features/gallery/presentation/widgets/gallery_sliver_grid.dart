@@ -7,6 +7,7 @@ import 'package:photo_manager_image_provider/photo_manager_image_provider.dart';
 import '../../data/services/upload_metadata_store.dart';
 
 const double _gridSpacing = 8.0;
+const EdgeInsets _gridPadding = EdgeInsets.symmetric(horizontal: 12, vertical: 16);
 const double _tileRadius = 12.0;
 const Duration _tileAnimationDuration = Duration(milliseconds: 220);
 
@@ -37,31 +38,34 @@ class GallerySliverGrid extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    return SliverGrid(
-      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-        crossAxisCount: 3,
-        mainAxisSpacing: _gridSpacing,
-        crossAxisSpacing: _gridSpacing,
+    return SliverPadding(
+      padding: _gridPadding,
+      sliver: SliverGrid(
+        gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+          crossAxisCount: 3,
+          mainAxisSpacing: _gridSpacing,
+          crossAxisSpacing: _gridSpacing,
+        ),
+        delegate: SliverChildBuilderDelegate((context, index) {
+          final asset = assets[index];
+          return GalleryTile(
+            asset: asset,
+            theme: theme,
+            metadataStore: metadataStore,
+            selectionMode: selectionMode,
+            isSelected: selectedAssetIds.contains(asset.id),
+            isUploading: uploadingAssetIds.contains(asset.id),
+            showSelectionIndicator: !hideSelectionIndicatorAssetIds.contains(
+              asset.id,
+            ),
+            onTap: () => onAssetTap?.call(asset),
+            onLongPress: () => onAssetLongPress?.call(asset),
+            onUpload: onAssetUpload != null
+                ? () => onAssetUpload?.call(asset)
+                : null,
+          );
+        }, childCount: assets.length),
       ),
-      delegate: SliverChildBuilderDelegate((context, index) {
-        final asset = assets[index];
-        return GalleryTile(
-          asset: asset,
-          theme: theme,
-          metadataStore: metadataStore,
-          selectionMode: selectionMode,
-          isSelected: selectedAssetIds.contains(asset.id),
-          isUploading: uploadingAssetIds.contains(asset.id),
-          showSelectionIndicator: !hideSelectionIndicatorAssetIds.contains(
-            asset.id,
-          ),
-          onTap: () => onAssetTap?.call(asset),
-          onLongPress: () => onAssetLongPress?.call(asset),
-          onUpload: onAssetUpload != null
-              ? () => onAssetUpload?.call(asset)
-              : null,
-        );
-      }, childCount: assets.length),
     );
   }
 }
@@ -143,8 +147,11 @@ class _GalleryTileState extends State<GalleryTile> {
                 : _isHovered
                     ? 1.02
                     : 1.0;
-        final Color borderColor = theme.colorScheme.onSurface.withValues(
-          alpha: (widget.isSelected || _isHovered) ? 0.16 : 0.08,
+        final Color borderColor = Color.alphaBlend(
+          theme.colorScheme.primary.withValues(
+            alpha: widget.isSelected || widget.isUploading ? 0.24 : 0.08,
+          ),
+          theme.colorScheme.outlineVariant.withValues(alpha: 0.2),
         );
 
         final Widget topRightChild;
@@ -165,13 +172,36 @@ class _GalleryTileState extends State<GalleryTile> {
           topRightChild = const SizedBox.shrink(key: ValueKey('empty'));
         }
 
-        final double overlayOpacity = uploading
-            ? 0.45
-            : widget.isSelected
-                ? 0.35
-                : showSelection
-                    ? 0.18
-                    : 0.0;
+        final Color overlayBaseColor;
+        final double overlayOpacity;
+        if (widget.isSelected) {
+          overlayBaseColor = theme.colorScheme.primary;
+          overlayOpacity = 0.28;
+        } else if (uploading) {
+          overlayBaseColor = theme.colorScheme.secondary;
+          overlayOpacity = 0.32;
+        } else if (showSelection) {
+          overlayBaseColor = theme.colorScheme.primary;
+          overlayOpacity = 0.18;
+        } else if (_isHovered) {
+          overlayBaseColor = theme.colorScheme.scrim;
+          overlayOpacity = 0.08;
+        } else {
+          overlayBaseColor = Colors.transparent;
+          overlayOpacity = 0.0;
+        }
+
+        final Color resolvedOverlayColor = overlayOpacity <= 0
+            ? Colors.transparent
+            : overlayBaseColor.withValues(alpha: overlayOpacity);
+
+        final double gradientOpacity = widget.selectionMode || widget.isSelected
+            ? 1
+            : uploading
+                ? 0.55
+                : _isHovered
+                    ? 0.35
+                    : 0;
 
         return MouseRegion(
           onEnter: (_) => _handleHover(true),
@@ -184,12 +214,16 @@ class _GalleryTileState extends State<GalleryTile> {
               duration: _tileAnimationDuration,
               curve: Curves.easeInOut,
               decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(_tileRadius + 4),
+                borderRadius: BorderRadius.circular(_tileRadius + 6),
                 gradient: LinearGradient(
                   begin: Alignment.topLeft,
                   end: Alignment.bottomRight,
                   colors: [
-                    theme.colorScheme.surfaceContainerLow.withValues(alpha: 0.7),
+                    Color.alphaBlend(
+                      theme.colorScheme.primary
+                          .withValues(alpha: widget.isSelected ? 0.12 : 0.06),
+                      theme.colorScheme.surfaceContainerHigh,
+                    ),
                     theme.colorScheme.surface,
                   ],
                 ),
@@ -198,12 +232,27 @@ class _GalleryTileState extends State<GalleryTile> {
                   width: 1,
                 ),
                 boxShadow: [
-                  if (widget.isSelected || _isHovered)
+                  BoxShadow(
+                    color: Colors.black.withValues(alpha: 0.12),
+                    blurRadius: 16,
+                    offset: const Offset(0, 10),
+                  ),
+                  if (widget.isSelected || uploading || _isHovered)
                     BoxShadow(
-                      color: theme.colorScheme.primary.withValues(alpha: 0.18),
-                      blurRadius: 16,
+                      color: (widget.isSelected
+                              ? theme.colorScheme.primary
+                              : uploading
+                                  ? theme.colorScheme.secondary
+                                  : theme.colorScheme.primary)
+                          .withValues(
+                        alpha: widget.isSelected
+                            ? 0.24
+                            : uploading
+                                ? 0.18
+                                : 0.14,
+                      ),
+                      blurRadius: 20,
                       spreadRadius: 1,
-                      offset: const Offset(0, 6),
                     ),
                 ],
               ),
@@ -224,6 +273,7 @@ class _GalleryTileState extends State<GalleryTile> {
                       children: [
                         Hero(
                           tag: widget.asset.id,
+                          transitionOnUserGestures: true,
                           child: Image(
                             image: AssetEntityImageProvider(
                               widget.asset,
@@ -235,22 +285,15 @@ class _GalleryTileState extends State<GalleryTile> {
                         ),
                         _GradientOverlay(
                           theme: theme,
-                          opacity: widget.selectionMode || widget.isSelected
-                              ? 1
-                              : 0.9,
+                          opacity: gradientOpacity,
                         ),
                         Positioned.fill(
                           child: IgnorePointer(
                             ignoring: true,
-                            child: AnimatedOpacity(
+                            child: AnimatedContainer(
                               duration: _tileAnimationDuration,
                               curve: Curves.easeInOut,
-                              opacity: overlayOpacity,
-                              child: DecoratedBox(
-                                decoration: BoxDecoration(
-                                  color: Colors.black,
-                                ),
-                              ),
+                              color: resolvedOverlayColor,
                             ),
                           ),
                         ),
@@ -272,11 +315,21 @@ class _GalleryTileState extends State<GalleryTile> {
                               );
                             },
                             child: widget.asset.isFavorite
-                                ? const Icon(
-                                    Icons.favorite,
-                                    key: ValueKey('favorite'),
-                                    size: 20,
-                                    color: Colors.white,
+                                ? DecoratedBox(
+                                    key: const ValueKey('favorite'),
+                                    decoration: BoxDecoration(
+                                      color: Colors.black.withValues(alpha: 0.45),
+                                      borderRadius: BorderRadius.circular(10),
+                                    ),
+                                    child: const Padding(
+                                      padding:
+                                          EdgeInsets.symmetric(horizontal: 6, vertical: 4),
+                                      child: Icon(
+                                        Icons.favorite,
+                                        size: 16,
+                                        color: Colors.white,
+                                      ),
+                                    ),
                                   )
                                 : const SizedBox(
                                     key: ValueKey('favorite-empty'),
