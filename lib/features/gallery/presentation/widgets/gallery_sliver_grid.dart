@@ -6,6 +6,9 @@ import 'package:photo_manager_image_provider/photo_manager_image_provider.dart';
 
 import '../../data/services/upload_metadata_store.dart';
 
+const double _gridSpacing = 8.0;
+const double _tileRadius = 12.0;
+
 class GallerySliverGrid extends StatelessWidget {
   const GallerySliverGrid({
     super.key,
@@ -29,8 +32,6 @@ class GallerySliverGrid extends StatelessWidget {
   final ValueChanged<AssetEntity>? onAssetTap;
   final ValueChanged<AssetEntity>? onAssetLongPress;
   final ValueChanged<AssetEntity>? onAssetUpload;
-
-  static const _gridSpacing = 12.0;
 
   @override
   Widget build(BuildContext context) {
@@ -108,16 +109,32 @@ class GalleryTile extends StatelessWidget {
         return GestureDetector(
           onTap: effectiveOnTap,
           onLongPress: effectiveOnLongPress,
-          child: ClipRRect(
-            borderRadius: BorderRadius.circular(16),
-            child: Stack(
-              fit: StackFit.expand,
-              children: [
-                Hero(
-                  tag: asset.id,
-                  child: Image(
-                    image: AssetEntityImageProvider(
-                      asset,
+          child: DecoratedBox(
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(_tileRadius + 4),
+              gradient: LinearGradient(
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+                colors: [
+                  theme.colorScheme.surfaceContainerLow.withValues(alpha: 0.7),
+                  theme.colorScheme.surface,
+                ],
+              ),
+              border: Border.all(
+                color: theme.colorScheme.onSurface.withValues(alpha: 0.08),
+                width: 1,
+              ),
+            ),
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(_tileRadius),
+              child: Stack(
+                fit: StackFit.expand,
+                children: [
+                  Hero(
+                    tag: asset.id,
+                    child: Image(
+                      image: AssetEntityImageProvider(
+                        asset,
                       isOriginal: false,
                       thumbnailSize: const ThumbnailSize.square(400),
                     ),
@@ -162,7 +179,8 @@ class GalleryTile extends StatelessWidget {
                       onPressed: onUpload!,
                     ),
                   ),
-              ],
+                ],
+              ),
             ),
           ),
         );
@@ -188,7 +206,7 @@ class _GradientOverlay extends StatelessWidget {
             end: Alignment.bottomCenter,
             colors: [
               Colors.transparent,
-              theme.colorScheme.scrim.withValues(alpha: 0.4),
+              theme.colorScheme.scrim.withValues(alpha: 0.32),
             ],
           ),
         ),
