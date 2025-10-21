@@ -1,12 +1,13 @@
 import 'dart:convert';
 
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../domain/models/user_details.dart';
 
 class SessionManager {
-  const SessionManager({FlutterSecureStorage? secureStorage})
+  SessionManager({FlutterSecureStorage? secureStorage})
     : _secureStorage = secureStorage ?? const FlutterSecureStorage();
 
   static const String _cookiesKey = 'session_cookies';
@@ -15,14 +16,18 @@ class SessionManager {
   static const String _legacyUserDetailsKey = _userDetailsKey;
 
   final FlutterSecureStorage _secureStorage;
+  bool _secureStorageUnavailable = false;
 
   Future<void> persistCookies(Map<String, String> cookies) async {
     final encoded = jsonEncode(cookies);
-    await _secureStorage.write(key: _cookiesKey, value: encoded);
+    final storedSecurely = await _writeSecure(_cookiesKey, encoded);
+    if (!storedSecurely) {
+      await _persistLegacyString(_legacyCookiesKey, encoded);
+    }
   }
 
   Future<Map<String, String>> loadCookies() async {
-    final stored = await _secureStorage.read(key: _cookiesKey);
+    final stored = await _readSecure(_cookiesKey);
     if (stored != null && stored.isNotEmpty) {
       return _decodeStringMap(stored);
     }
@@ -32,23 +37,28 @@ class SessionManager {
       return const {};
     }
 
-    await _secureStorage.write(key: _cookiesKey, value: legacy);
-    await _removeLegacyKey(_legacyCookiesKey);
+    final migrated = await _writeSecure(_cookiesKey, legacy);
+    if (migrated) {
+      await _removeLegacyKey(_legacyCookiesKey);
+    }
     return _decodeStringMap(legacy);
   }
 
   Future<void> clearCookies() async {
-    await _secureStorage.delete(key: _cookiesKey);
+    await _deleteSecure(_cookiesKey);
     await _removeLegacyKey(_legacyCookiesKey);
   }
 
   Future<void> persistUserDetails(UserDetails details) async {
     final encoded = jsonEncode(details.toJson());
-    await _secureStorage.write(key: _userDetailsKey, value: encoded);
+    final storedSecurely = await _writeSecure(_userDetailsKey, encoded);
+    if (!storedSecurely) {
+      await _persistLegacyString(_legacyUserDetailsKey, encoded);
+    }
   }
 
   Future<UserDetails?> loadUserDetails() async {
-    final stored = await _secureStorage.read(key: _userDetailsKey);
+    final stored = await _readSecure(_userDetailsKey);
     if (stored != null && stored.isNotEmpty) {
       return _decodeUserDetails(stored);
     }
@@ -58,13 +68,15 @@ class SessionManager {
       return null;
     }
 
-    await _secureStorage.write(key: _userDetailsKey, value: legacy);
-    await _removeLegacyKey(_legacyUserDetailsKey);
+    final migrated = await _writeSecure(_userDetailsKey, legacy);
+    if (migrated) {
+      await _removeLegacyKey(_legacyUserDetailsKey);
+    }
     return _decodeUserDetails(legacy);
   }
 
   Future<void> clearUserDetails() async {
-    await _secureStorage.delete(key: _userDetailsKey);
+    await _deleteSecure(_userDetailsKey);
     await _removeLegacyKey(_legacyUserDetailsKey);
   }
 
@@ -73,9 +85,65 @@ class SessionManager {
     return prefs.getString(key);
   }
 
+  Future<void> _persistLegacyString(String key, String value) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(key, value);
+  }
+
   Future<void> _removeLegacyKey(String key) async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.remove(key);
+  }
+
+  Future<String?> _readSecure(String key) async {
+    if (_secureStorageUnavailable) {
+      return null;
+    }
+
+    try {
+      return await _secureStorage.read(key: key);
+    } on MissingPluginException {
+      _secureStorageUnavailable = true;
+      return null;
+    } on PlatformException {
+      _secureStorageUnavailable = true;
+      return null;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  Future<bool> _writeSecure(String key, String value) async {
+    if (_secureStorageUnavailable) {
+      return false;
+    }
+
+    try {
+      await _secureStorage.write(key: key, value: value);
+      return true;
+    } on MissingPluginException {
+      _secureStorageUnavailable = true;
+      return false;
+    } on PlatformException {
+      _secureStorageUnavailable = true;
+      return false;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  Future<void> _deleteSecure(String key) async {
+    if (_secureStorageUnavailable) {
+      return;
+    }
+
+    try {
+      await _secureStorage.delete(key: key);
+    } on MissingPluginException {
+      _secureStorageUnavailable = true;
+    } on PlatformException {
+      _secureStorageUnavailable = true;
+    }
   }
 
   Map<String, String> _decodeStringMap(String stored) {
