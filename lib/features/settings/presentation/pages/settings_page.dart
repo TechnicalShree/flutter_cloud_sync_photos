@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import '../../../auth/data/services/auth_service.dart';
@@ -27,6 +29,10 @@ class _SettingsPageState extends State<SettingsPage> {
   bool _loadingPreferences = true;
   bool _isPrivateUploads = true;
   bool _optimizeUploads = false;
+  bool _wifiOnly = false;
+  bool _whileCharging = false;
+  bool _blockOnRoaming = false;
+  int _batteryThreshold = 0;
   bool _processingLogout = false;
   bool _resettingMetadata = false;
   List<UploadJob> _uploadJobs = const [];
@@ -83,6 +89,10 @@ class _SettingsPageState extends State<SettingsPage> {
     setState(() {
       _isPrivateUploads = prefs.isPrivate;
       _optimizeUploads = prefs.optimize;
+      _wifiOnly = prefs.wifiOnly;
+      _whileCharging = prefs.whileCharging;
+      _blockOnRoaming = prefs.blockOnRoaming;
+      _batteryThreshold = prefs.batteryThreshold;
       _loadingPreferences = false;
     });
   }
@@ -111,6 +121,42 @@ class _SettingsPageState extends State<SettingsPage> {
       _optimizeUploads = value;
     });
     await _preferencesStore.setOptimize(value);
+  }
+
+  Future<void> _handleWifiOnlyToggle(bool value) async {
+    setState(() {
+      _wifiOnly = value;
+    });
+    await _preferencesStore.setWifiOnly(value);
+    unawaited(_uploadQueue.refreshEnvironmentConstraints());
+  }
+
+  Future<void> _handleWhileChargingToggle(bool value) async {
+    setState(() {
+      _whileCharging = value;
+    });
+    await _preferencesStore.setWhileCharging(value);
+    unawaited(_uploadQueue.refreshEnvironmentConstraints());
+  }
+
+  Future<void> _handleBlockOnRoamingToggle(bool value) async {
+    setState(() {
+      _blockOnRoaming = value;
+    });
+    await _preferencesStore.setBlockOnRoaming(value);
+    unawaited(_uploadQueue.refreshEnvironmentConstraints());
+  }
+
+  void _handleBatterySliderChanged(double value) {
+    setState(() {
+      _batteryThreshold = value.round();
+    });
+  }
+
+  void _handleBatterySliderChangeEnd(double value) {
+    final threshold = value.round();
+    unawaited(_preferencesStore.setBatteryThreshold(threshold));
+    unawaited(_uploadQueue.refreshEnvironmentConstraints());
   }
 
   Future<void> _handleLogout() async {
@@ -307,6 +353,60 @@ class _SettingsPageState extends State<SettingsPage> {
             title: const Text('Optimize images'),
             subtitle: const Text('Compress images before upload to save space'),
             contentPadding: EdgeInsets.zero,
+          ),
+          const Divider(height: 1),
+          SwitchListTile.adaptive(
+            value: _wifiOnly,
+            onChanged: _handleWifiOnlyToggle,
+            title: const Text('Wi-Fi only'),
+            subtitle: const Text('Upload when connected to Wi-Fi'),
+            contentPadding: EdgeInsets.zero,
+          ),
+          const Divider(height: 1),
+          SwitchListTile.adaptive(
+            value: _whileCharging,
+            onChanged: _handleWhileChargingToggle,
+            title: const Text('Only while charging'),
+            subtitle: const Text('Pause uploads when the device is on battery power'),
+            contentPadding: EdgeInsets.zero,
+          ),
+          const Divider(height: 1),
+          SwitchListTile.adaptive(
+            value: _blockOnRoaming,
+            onChanged: _handleBlockOnRoamingToggle,
+            title: const Text('Block on roaming'),
+            subtitle: const Text('Avoid cellular data charges while travelling'),
+            contentPadding: EdgeInsets.zero,
+          ),
+          const Divider(height: 1),
+          ListTile(
+            contentPadding: EdgeInsets.zero,
+            title: const Text('Battery threshold'),
+            subtitle: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const SizedBox(height: 12),
+                Text(
+                  _batteryThreshold <= 0
+                      ? 'Uploads run at any battery level unless charging is required.'
+                      : 'Pause uploads below $_batteryThreshold% unless the device is charging.',
+                  style: theme.textTheme.bodyMedium?.copyWith(
+                    color: theme.colorScheme.onSurfaceVariant,
+                  ),
+                ),
+                Slider(
+                  min: 0,
+                  max: 100,
+                  divisions: 20,
+                  label: _batteryThreshold == 0
+                      ? 'Off'
+                      : '$_batteryThreshold%',
+                  value: _batteryThreshold.toDouble(),
+                  onChanged: _handleBatterySliderChanged,
+                  onChangeEnd: _handleBatterySliderChangeEnd,
+                ),
+              ],
+            ),
           ),
           const Divider(height: 1),
           ListTile(

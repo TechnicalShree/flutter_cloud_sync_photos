@@ -3,6 +3,8 @@ import 'dart:collection';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter_cloud_sync_photos/core/network/api_exception.dart';
+import 'package:flutter_cloud_sync_photos/core/network/network_service.dart';
+import 'package:flutter_cloud_sync_photos/core/system/power_service.dart';
 import 'package:photo_manager/photo_manager.dart';
 
 import '../../../auth/data/services/auth_service.dart';
@@ -63,20 +65,44 @@ class GalleryUploadQueue extends ChangeNotifier {
     UploadPreferencesStore? preferencesStore,
     AuthService? authService,
     FolderPathResolver? folderPathResolver,
+    NetworkService? networkService,
+    PowerService? powerService,
   })  : _metadataStore = metadataStore ?? UploadMetadataStore(),
         _preferencesStore = preferencesStore ?? uploadPreferencesStore,
         _authService = authService ?? globalAuthService,
-        _folderPathResolver = folderPathResolver ?? defaultFolderPathResolver;
+        _folderPathResolver = folderPathResolver ?? defaultFolderPathResolver,
+        _networkService = networkService ?? NetworkService(),
+        _powerService = powerService ?? PowerService() {
+    _networkSubscription =
+        _networkService.onConditionsChanged.listen((conditions) {
+      _latestNetworkConditions = conditions;
+      _handleEnvironmentUpdate();
+    });
+    _powerSubscription = _powerService.onStatusChanged.listen((status) {
+      _latestPowerStatus = status;
+      _handleEnvironmentUpdate();
+    });
+    unawaited(_primeEnvironment());
+  }
 
   final UploadMetadataStore _metadataStore;
   final UploadPreferencesStore _preferencesStore;
   final AuthService _authService;
   final FolderPathResolver _folderPathResolver;
+  final NetworkService _networkService;
+  final PowerService _powerService;
 
   final Map<String, UploadJob> _jobs = <String, UploadJob>{};
   final Queue<UploadJob> _queue = Queue<UploadJob>();
 
   bool _processing = false;
+  StreamSubscription<NetworkConditions>? _networkSubscription;
+  StreamSubscription<PowerStatus>? _powerSubscription;
+  Timer? _recheckTimer;
+  NetworkConditions? _latestNetworkConditions;
+  PowerStatus? _latestPowerStatus;
+  UploadPreferences? _lastKnownPreferences;
+  String? _blockedReason;
 
   List<UploadJob> get jobs {
     final items = _jobs.values.toList()
@@ -85,6 +111,8 @@ class GalleryUploadQueue extends ChangeNotifier {
       );
     return List.unmodifiable(items);
   }
+
+  String? get blockedReason => _blockedReason;
 
   bool get hasActiveUploads =>
       _jobs.values.any((job) => job.status == UploadJobStatus.uploading) ||
@@ -115,6 +143,8 @@ class GalleryUploadQueue extends ChangeNotifier {
     }
 
     final prefs = await _preferencesStore.load();
+    _lastKnownPreferences = prefs;
+    await _refreshEnvironmentBlock();
     int enqueued = 0;
     int duplicates = 0;
     int alreadyUploaded = 0;
@@ -186,6 +216,130 @@ class GalleryUploadQueue extends ChangeNotifier {
     return true;
   }
 
+  @override
+  void dispose() {
+    _networkSubscription?.cancel();
+    _powerSubscription?.cancel();
+    _recheckTimer?.cancel();
+    super.dispose();
+  }
+
+  Future<void> _primeEnvironment() async {
+    try {
+      _latestNetworkConditions = await _networkService.currentConditions();
+    } catch (_) {
+      _latestNetworkConditions = null;
+    }
+
+    try {
+      _latestPowerStatus = await _powerService.currentStatus();
+    } catch (_) {
+      _latestPowerStatus = null;
+    }
+
+    try {
+      final prefs = await _preferencesStore.load();
+      _lastKnownPreferences = prefs;
+      final reason = await _environmentBlockReason(prefs);
+      _setEnvironmentBlock(reason);
+    } catch (_) {
+      // Ignore preference load errors during startup.
+    }
+  }
+
+  Future<void> refreshEnvironmentConstraints() async {
+    try {
+      final prefs = await _preferencesStore.load();
+      _lastKnownPreferences = prefs;
+      await _refreshEnvironmentBlock();
+    } catch (_) {
+      // Ignore refresh errors triggered by preference updates.
+    }
+  }
+
+  void _handleEnvironmentUpdate() {
+    _recheckTimer?.cancel();
+    _recheckTimer = null;
+
+    if (_lastKnownPreferences != null) {
+      unawaited(_refreshEnvironmentBlock());
+    }
+
+    if (_queue.isNotEmpty && !_processing) {
+      unawaited(_processQueue());
+    }
+  }
+
+  Future<void> _refreshEnvironmentBlock() async {
+    final prefs = _lastKnownPreferences;
+    if (prefs == null) {
+      return;
+    }
+    final reason = await _environmentBlockReason(prefs);
+    _setEnvironmentBlock(reason);
+  }
+
+  Future<String?> _environmentBlockReason(UploadPreferences prefs) async {
+    var network = _latestNetworkConditions;
+    if (network == null) {
+      network = await _networkService.currentConditions();
+      _latestNetworkConditions = network;
+    }
+
+    if (!network.hasNetwork) {
+      return 'Waiting for a network connection';
+    }
+    if (!network.isOnline) {
+      return 'No internet connection detected';
+    }
+    if (prefs.wifiOnly && !network.isWifi) {
+      return 'Uploads require a Wi-Fi connection';
+    }
+    if (prefs.blockOnRoaming && network.isMobile) {
+      final roaming = network.isRoaming;
+      if (roaming == true) {
+        return 'Uploads paused while roaming';
+      }
+    }
+
+    var power = _latestPowerStatus;
+    if (power == null) {
+      power = await _powerService.currentStatus();
+      _latestPowerStatus = power;
+    }
+
+    if (prefs.whileCharging && !power.isCharging) {
+      return 'Waiting until the device is charging';
+    }
+
+    final level = power.level;
+    if (prefs.batteryThreshold > 0 && !power.isCharging) {
+      if (level != null && level < prefs.batteryThreshold) {
+        return 'Battery must be at least ${prefs.batteryThreshold}% to upload';
+      }
+    }
+
+    return null;
+  }
+
+  void _scheduleRecheck() {
+    _recheckTimer?.cancel();
+    _recheckTimer = Timer(const Duration(seconds: 20), () {
+      _recheckTimer = null;
+      if (_queue.isNotEmpty && !_processing) {
+        unawaited(_processQueue());
+      }
+    });
+  }
+
+  void _setEnvironmentBlock(String? reason) {
+    if (_blockedReason == reason) {
+      return;
+    }
+    _blockedReason = reason;
+    notifyListeners();
+  }
+
   Future<void> _processQueue() async {
     if (_processing) {
       return;
@@ -196,6 +350,20 @@ class GalleryUploadQueue extends ChangeNotifier {
       if (job.status != UploadJobStatus.queued) {
         continue;
       }
+
+      _lastKnownPreferences = job.preferences;
+      final blockReason = await _environmentBlockReason(job.preferences);
+      if (blockReason != null) {
+        _queue.addFirst(job);
+        _setEnvironmentBlock(blockReason);
+        _scheduleRecheck();
+        _processing = false;
+        return;
+      }
+
+      _setEnvironmentBlock(null);
+      _recheckTimer?.cancel();
+      _recheckTimer = null;
 
       job.status = UploadJobStatus.uploading;
       notifyListeners();
@@ -233,6 +401,11 @@ class GalleryUploadQueue extends ChangeNotifier {
       }
     }
     _processing = false;
+    if (_queue.isEmpty) {
+      _setEnvironmentBlock(null);
+      _recheckTimer?.cancel();
+      _recheckTimer = null;
+    }
   }
 
   Future<String> _resolveFileName(AssetEntity asset) async {

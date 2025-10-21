@@ -1,3 +1,6 @@
+import 'dart:async';
+
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:photo_manager/photo_manager.dart';
 
@@ -14,6 +17,21 @@ class GalleryPermissionPrompt extends StatelessWidget {
   final VoidCallback onRetry;
 
   bool get _isLimited => permissionState == PermissionState.limited;
+  bool get _canPresentLimited =>
+      _isLimited && !kIsWeb && defaultTargetPlatform == TargetPlatform.iOS;
+
+  void _handlePrimaryPressed() {
+    if (_canPresentLimited) {
+      unawaited(_presentLimitedAndRefresh());
+    } else {
+      onRequestPermission();
+    }
+  }
+
+  Future<void> _presentLimitedAndRefresh() async {
+    await PhotoManager.presentLimited();
+    onRetry();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -26,6 +44,7 @@ class GalleryPermissionPrompt extends StatelessWidget {
     final message = _isLimited
         ? 'Grant additional access so we can show more of your gallery.'
         : 'Tap below to grant photo access and load your gallery.';
+    final primaryLabel = _isLimited ? 'Select more photos' : 'Grant access';
 
     return SliverFillRemaining(
       hasScrollBody: false,
@@ -65,9 +84,9 @@ class GalleryPermissionPrompt extends StatelessWidget {
               ),
               const SizedBox(height: 24),
               FilledButton.icon(
-                onPressed: onRequestPermission,
+                onPressed: _handlePrimaryPressed,
                 icon: const Icon(Icons.photo_library_outlined),
-                label: const Text('Grant access'),
+                label: Text(primaryLabel),
               ),
               const SizedBox(height: 12),
               TextButton(

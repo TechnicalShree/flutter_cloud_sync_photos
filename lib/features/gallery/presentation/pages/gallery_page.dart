@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:ui';
 
 import 'package:flutter/material.dart';
+import 'package:flutter_cloud_sync_photos/core/network/network_service.dart';
 import 'package:photo_manager/photo_manager.dart';
 import 'package:photo_manager_image_provider/photo_manager_image_provider.dart';
 
@@ -33,9 +34,14 @@ class _GalleryPageState extends State<GalleryPage> {
   final UploadMetadataStore _metadataStore = UploadMetadataStore();
   final Set<String> _selectedAssetIds = <String>{};
   late final GalleryUploadQueue _uploadQueue;
+  late final NetworkService _networkService;
   Set<String> _uploadingAssetIds = const <String>{};
   bool _hasActiveUploads = false;
   VoidCallback? _uploadQueueListener;
+  StreamSubscription<NetworkConditions>? _networkSubscription;
+  bool _hasNetworkConnection = true;
+  bool _isOnline = true;
+  String? _uploadBlockReason;
 
   List<AssetEntity> _assets = const <AssetEntity>[];
   List<GallerySection> _sections = const <GallerySection>[];
@@ -52,6 +58,10 @@ class _GalleryPageState extends State<GalleryPage> {
     _uploadQueueListener = _handleUploadQueueChange;
     _uploadQueue.addListener(_uploadQueueListener!);
     _syncUploadState();
+    _networkService = NetworkService();
+    _networkSubscription =
+        _networkService.onConditionsChanged.listen(_handleNetworkConditions);
+    unawaited(_primeNetworkStatus());
     _scrollController = ScrollController()..addListener(_onScroll);
     _initializeGallery(reset: true);
   }
@@ -62,6 +72,8 @@ class _GalleryPageState extends State<GalleryPage> {
       _uploadQueue.removeListener(_uploadQueueListener!);
       _uploadQueueListener = null;
     }
+    _networkSubscription?.cancel();
+    _networkSubscription = null;
     _scrollController.removeListener(_onScroll);
     _scrollController.dispose();
     super.dispose();
@@ -141,16 +153,40 @@ class _GalleryPageState extends State<GalleryPage> {
   void _syncUploadState({bool notify = false}) {
     final uploadingIds = _uploadQueue.activeAssetIds.toSet();
     final hasActive = _uploadQueue.hasActiveUploads;
+    final blockReason = _uploadQueue.blockedReason;
 
     if (notify) {
       setState(() {
         _uploadingAssetIds = uploadingIds;
         _hasActiveUploads = hasActive;
+        _uploadBlockReason = blockReason;
       });
     } else {
       _uploadingAssetIds = uploadingIds;
       _hasActiveUploads = hasActive;
+      _uploadBlockReason = blockReason;
     }
+  }
+
+  Future<void> _primeNetworkStatus() async {
+    final conditions = await _networkService.currentConditions();
+    if (!mounted) {
+      return;
+    }
+    setState(() {
+      _hasNetworkConnection = conditions.hasNetwork;
+      _isOnline = conditions.isOnline;
+    });
+  }
+
+  void _handleNetworkConditions(NetworkConditions conditions) {
+    if (!mounted) {
+      return;
+    }
+    setState(() {
+      _hasNetworkConnection = conditions.hasNetwork;
+      _isOnline = conditions.isOnline;
+    });
   }
 
   Future<void> _fetchAssets({required bool reset}) async {
@@ -406,9 +442,61 @@ class _GalleryPageState extends State<GalleryPage> {
     return parts.isEmpty ? 'No photos queued' : parts.join(', ');
   }
 
+  List<_StatusBannerData> _statusBannerData() {
+    final banners = <_StatusBannerData>[];
+
+    if (!_isOnline) {
+      final message = _hasNetworkConnection
+          ? 'No internet connection detected. Uploads will resume automatically.'
+          : 'No network connection. Connect to Wi-Fi or cellular to resume uploads.';
+      banners.add(
+        _StatusBannerData(icon: Icons.wifi_off, message: message),
+      );
+    }
+
+    final reason = _uploadBlockReason?.trim();
+    if (reason != null && reason.isNotEmpty) {
+      const offlineReasons = {
+        'No internet connection detected',
+        'Waiting for a network connection',
+      };
+      if (_isOnline || !offlineReasons.contains(reason)) {
+        banners.add(
+          _StatusBannerData(
+            icon: _iconForBlockReason(reason),
+            message: reason,
+          ),
+        );
+      }
+    }
+
+    return banners;
+  }
+
+  IconData _iconForBlockReason(String reason) {
+    final lower = reason.toLowerCase();
+    if (lower.contains('wi-fi')) {
+      return Icons.wifi_tethering_off;
+    }
+    if (lower.contains('roaming')) {
+      return Icons.public_off;
+    }
+    if (lower.contains('charging')) {
+      return Icons.ev_station;
+    }
+    if (lower.contains('battery')) {
+      return Icons.battery_alert;
+    }
+    if (lower.contains('network')) {
+      return Icons.wifi_off;
+    }
+    return Icons.cloud_off;
+  }
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final bannerData = _statusBannerData();
 
     return PopScope(
       canPop: !_selectionMode,
@@ -435,15 +523,17 @@ class _GalleryPageState extends State<GalleryPage> {
             ),
           ),
           child: SafeArea(
-            child: GalleryRefreshIndicator(
-              onRefresh: _handleRefresh,
-              child: CustomScrollView(
-                controller: _scrollController,
-                physics: const AlwaysScrollableScrollPhysics(),
-                slivers: [
-                  SliverAppBar(
-                    expandedHeight: 240,
-                    pinned: true,
+            child: Stack(
+              children: [
+                GalleryRefreshIndicator(
+                  onRefresh: _handleRefresh,
+                  child: CustomScrollView(
+                    controller: _scrollController,
+                    physics: const AlwaysScrollableScrollPhysics(),
+                    slivers: [
+                      SliverAppBar(
+                        expandedHeight: 240,
+                        pinned: true,
                     elevation: 0,
                     backgroundColor: Colors.transparent,
                     automaticallyImplyLeading: false,
@@ -484,7 +574,7 @@ class _GalleryPageState extends State<GalleryPage> {
                                       _GalleryGlassIconButton(
                                         icon: Icons.cloud_upload,
                                         tooltip: 'Upload selected',
-                                        onPressed: _selectedAssetIds.isEmpty
+                                        onPressed: _selectedAssetIds.isEmpty || !_isOnline
                                             ? null
                                             : () => _uploadSelectedAssets(),
                                       ),
@@ -518,23 +608,50 @@ class _GalleryPageState extends State<GalleryPage> {
                     ),
                     sliver: _buildContent(theme),
                   ),
-                  if (_isLoadingMore)
-                    const SliverToBoxAdapter(
-                      child: Padding(
-                        padding: EdgeInsets.only(bottom: 24),
-                        child: Center(
-                          child: SizedBox(
-                            height: 24,
-                            width: 24,
-                            child: CircularProgressIndicator(strokeWidth: 2.5),
+                      if (_isLoadingMore)
+                        const SliverToBoxAdapter(
+                          child: Padding(
+                            padding: EdgeInsets.only(bottom: 24),
+                            child: Center(
+                              child: SizedBox(
+                                height: 24,
+                                width: 24,
+                                child: CircularProgressIndicator(strokeWidth: 2.5),
+                              ),
+                            ),
                           ),
-                        ),
+                        )
+                      else if (!_isLoading && !_hasMore && _assets.isNotEmpty)
+                        const SliverToBoxAdapter(child: SizedBox(height: 24)),
+                    ],
+                  ),
+                ),
+                if (bannerData.isNotEmpty)
+                  Positioned(
+                    top: 0,
+                    left: 0,
+                    right: 0,
+                    child: IgnorePointer(
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          const SizedBox(height: 8),
+                          for (final data in bannerData)
+                            Padding(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 16,
+                                vertical: 4,
+                              ),
+                              child: _GalleryStatusBanner(
+                                icon: data.icon,
+                                message: data.message,
+                              ),
+                            ),
+                        ],
                       ),
-                    )
-                  else if (!_isLoading && !_hasMore && _assets.isNotEmpty)
-                    const SliverToBoxAdapter(child: SizedBox(height: 24)),
-                ],
-              ),
+                    ),
+                  ),
+              ],
             ),
           ),
         ),
@@ -570,7 +687,7 @@ class _GalleryPageState extends State<GalleryPage> {
           : const <String>{},
       onAssetTap: _handleAssetTap,
       onAssetLongPress: _handleAssetLongPress,
-      onAssetUpload: _uploadAsset,
+      onAssetUpload: _isOnline ? _uploadAsset : null,
     );
   }
 
@@ -836,6 +953,61 @@ class _GalleryGlassProgressIndicator extends StatelessWidget {
               valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
             ),
           ),
+        ),
+      ),
+    );
+  }
+}
+
+class _StatusBannerData {
+  const _StatusBannerData({required this.icon, required this.message});
+
+  final IconData icon;
+  final String message;
+}
+
+class _GalleryStatusBanner extends StatelessWidget {
+  const _GalleryStatusBanner({
+    required this.icon,
+    required this.message,
+  });
+
+  final IconData icon;
+  final String message;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: colorScheme.surfaceContainerHigh.withValues(alpha: 0.95),
+        borderRadius: BorderRadius.circular(16),
+        boxShadow: [
+          BoxShadow(
+            color: colorScheme.shadow.withValues(alpha: 0.12),
+            blurRadius: 18,
+            offset: const Offset(0, 10),
+          ),
+        ],
+      ),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(icon, color: colorScheme.primary),
+            const SizedBox(width: 12),
+            Flexible(
+              child: Text(
+                message,
+                style: theme.textTheme.bodyMedium?.copyWith(
+                  color: colorScheme.onSurface,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ),
+          ],
         ),
       ),
     );
