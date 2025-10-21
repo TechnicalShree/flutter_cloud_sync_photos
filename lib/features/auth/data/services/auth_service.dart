@@ -398,6 +398,7 @@ class AuthService {
 
     final response = await _apiClient.sendMultipart<Map<String, dynamic>>(
       path: ApiEndpoint.uploadChunk.path,
+      method: network.ApiMethod.put,
       files: [file],
       fields: fields,
       parser: (data) =>
