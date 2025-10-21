@@ -752,16 +752,8 @@ class GalleryUploadQueue extends ChangeNotifier {
 
   Future<String?> _computeFileHash(File file) async {
     try {
-      final sink = AccumulatorSink<Digest>();
-      final input = sha256.startChunkedConversion(sink);
-      await for (final chunk in file.openRead()) {
-        input.add(chunk);
-      }
-      input.close();
-      if (sink.events.isEmpty) {
-        return null;
-      }
-      return sink.events.single.toString();
+      final digest = await sha256.bind(file.openRead()).first;
+      return digest.toString();
     } catch (_) {
       return null;
     }

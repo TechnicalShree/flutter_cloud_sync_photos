@@ -443,14 +443,12 @@ class AuthService {
 }
 
 class ResumableUploadSession {
-  const ResumableUploadSession({
+  ResumableUploadSession({
     required this.sessionId,
     this.chunkSize,
     this.uploadUrl,
     Map<String, String>? headers,
-  }) : headers = headers == null
-            ? const <String, String>{}
-            : Map.unmodifiable(headers);
+  }) : headers = Map.unmodifiable(headers ?? const <String, String>{});
 
   factory ResumableUploadSession.fromJson(Map<String, dynamic> json) {
     final headers = <String, String>{};

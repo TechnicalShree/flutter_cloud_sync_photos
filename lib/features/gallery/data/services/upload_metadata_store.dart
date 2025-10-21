@@ -3,7 +3,7 @@ import 'dart:convert';
 import 'package:shared_preferences/shared_preferences.dart';
 
 class UploadMetadata {
-  const UploadMetadata({
+  UploadMetadata({
     required this.assetId,
     this.contentHash,
     this.sessionId,
@@ -98,7 +98,7 @@ class UploadMetadataStore {
   final Future<SharedPreferences> _prefsFuture;
 
   Future<void> saveContentHash(String assetId, String contentHash) {
-    return markCompleted(assetId, contentHash: contentHash);
+    return markCompleted(assetId: assetId, contentHash: contentHash);
   }
 
   Future<void> markCompleted({
