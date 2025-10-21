@@ -8,6 +8,9 @@ enum ApiEndpoint {
   verifySession('api/method/backup_app.api.verify_session.verify_session'),
   userDetails('api/method/backup_app.api.user_details.get_user_details'),
   uploadFile('api/method/backup_app.api.files.upload_file_safe'),
+  startResumableUpload('api/method/backup_app.api.files.start_resumable_upload'),
+  uploadChunk('api/method/backup_app.api.files.upload_chunk'),
+  completeResumableUpload('api/method/backup_app.api.files.complete_resumable_upload'),
   unsyncFile('api/method/backup_app.api.files.unsync_file');
 
   const ApiEndpoint(this.path);

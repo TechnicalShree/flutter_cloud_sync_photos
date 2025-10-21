@@ -267,7 +267,7 @@ class _SyncedBadge extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Tooltip(
-      message: 'Already synced',
+      message: 'Already in cloud',
       child: DecoratedBox(
         decoration: BoxDecoration(
           color: Colors.black.withValues(alpha: 0.55),
@@ -281,7 +281,7 @@ class _SyncedBadge extends StatelessWidget {
               Icon(Icons.check_circle, size: 14, color: Colors.white),
               SizedBox(width: 4),
               Text(
-                'Synced',
+                'In cloud',
                 style: TextStyle(
                   color: Colors.white,
                   fontSize: 12,

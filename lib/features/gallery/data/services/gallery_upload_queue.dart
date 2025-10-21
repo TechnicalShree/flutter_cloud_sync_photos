@@ -1,6 +1,10 @@
 import 'dart:async';
 import 'dart:collection';
+import 'dart:convert';
+import 'dart:io';
+import 'dart:math';
 
+import 'package:crypto/crypto.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_cloud_sync_photos/core/network/api_exception.dart';
 import 'package:flutter_cloud_sync_photos/core/network/network_service.dart';
@@ -21,6 +25,8 @@ class UploadJob {
     required this.fileName,
     required this.folder,
     required this.preferences,
+    this.contentHash,
+    this.totalBytes,
   }) : enqueuedAt = DateTime.now();
 
   final AssetEntity asset;
@@ -29,6 +35,11 @@ class UploadJob {
   final String folder;
   final UploadPreferences preferences;
   final DateTime enqueuedAt;
+
+  String? contentHash;
+  int? totalBytes;
+  int uploadedBytes = 0;
+  String? etag;
 
   UploadJobStatus status = UploadJobStatus.queued;
   String? error;
@@ -41,6 +52,14 @@ class UploadJob {
       status == UploadJobStatus.failed ||
       status == UploadJobStatus.skipped ||
       status == UploadJobStatus.cancelled;
+
+  double? get progress {
+    final total = totalBytes;
+    if (total == null || total == 0) {
+      return null;
+    }
+    return (uploadedBytes / total).clamp(0.0, 1.0);
+  }
 }
 
 class UploadEnqueueSummary {
@@ -96,6 +115,7 @@ class GalleryUploadQueue extends ChangeNotifier {
   final Queue<UploadJob> _queue = Queue<UploadJob>();
 
   bool _processing = false;
+  final Random _random = Random();
   StreamSubscription<NetworkConditions>? _networkSubscription;
   StreamSubscription<PowerStatus>? _powerSubscription;
   Timer? _recheckTimer;
@@ -148,6 +168,7 @@ class GalleryUploadQueue extends ChangeNotifier {
     int enqueued = 0;
     int duplicates = 0;
     int alreadyUploaded = 0;
+    final Set<String> encounteredHashes = <String>{};
 
     for (final asset in assets) {
       final assetId = asset.id;
@@ -158,10 +179,33 @@ class GalleryUploadQueue extends ChangeNotifier {
         continue;
       }
 
-      final isUploaded = await _metadataStore.isUploaded(assetId);
-      if (isUploaded) {
+      final metadata = await _metadataStore.metadataFor(assetId);
+      if (metadata?.isUploaded == true) {
         alreadyUploaded += 1;
         continue;
+      }
+
+      final preparation = await _prepareAssetForUpload(asset, metadata);
+      if (preparation == null) {
+        continue;
+      }
+
+      final hash = preparation.contentHash;
+      if (hash != null && hash.isNotEmpty) {
+        final uploaded = await _metadataStore.isContentHashUploaded(hash);
+        if (uploaded) {
+          alreadyUploaded += 1;
+          await _metadataStore.markCompleted(
+            assetId: assetId,
+            contentHash: hash,
+          );
+          continue;
+        }
+
+        if (!encounteredHashes.add(hash)) {
+          duplicates += 1;
+          continue;
+        }
       }
 
       final fileName = await _resolveFileName(asset);
@@ -173,11 +217,23 @@ class GalleryUploadQueue extends ChangeNotifier {
         fileName: fileName,
         folder: folder,
         preferences: prefs,
+        contentHash: hash,
+        totalBytes: preparation.totalBytes,
       );
+
+      if (metadata != null) {
+        job.uploadedBytes = metadata.uploadedBytes;
+        job.etag = metadata.etag;
+      }
 
       _jobs[assetId] = job;
       _queue.add(job);
       enqueued += 1;
+
+      await _metadataStore.ensureMetadata(
+        assetId,
+        totalBytes: preparation.totalBytes,
+      );
     }
 
     if (enqueued > 0) {
@@ -369,27 +425,8 @@ class GalleryUploadQueue extends ChangeNotifier {
       notifyListeners();
 
       try {
-        final wasUploaded = await _metadataStore.isUploaded(job.assetId);
-        if (wasUploaded) {
-          job.status = UploadJobStatus.skipped;
-          continue;
-        }
-
-        final bytes = await _loadAssetBytes(job.asset);
-        final response = await _authService.uploadFile(
-          fileName: job.fileName,
-          bytes: bytes,
-          isPrivate: job.preferences.isPrivate,
-          folder: job.folder,
-          optimize: job.preferences.optimize,
-        );
-
-        final contentHash = _findContentHash(response);
-        if (contentHash != null && contentHash.isNotEmpty) {
-          await _metadataStore.saveContentHash(job.assetId, contentHash);
-        }
-
-        job.status = UploadJobStatus.completed;
+        final resultStatus = await _performUpload(job);
+        job.status = resultStatus;
       } on ApiException catch (error) {
         job.status = UploadJobStatus.failed;
         job.error = error.message;
@@ -405,6 +442,328 @@ class GalleryUploadQueue extends ChangeNotifier {
       _setEnvironmentBlock(null);
       _recheckTimer?.cancel();
       _recheckTimer = null;
+    }
+  }
+
+  Future<UploadJobStatus> _performUpload(UploadJob job) async {
+    final metadata = await _metadataStore.metadataFor(job.assetId);
+    final file = await _resolveAssetFile(job.asset);
+
+    final int totalBytes = job.totalBytes ?? await file.length();
+    job.totalBytes = totalBytes;
+
+    final String? contentHash =
+        await _ensureContentHash(job, existingFile: file, metadata: metadata);
+
+    if (metadata?.isUploaded == true &&
+        metadata!.contentHash != null &&
+        metadata.contentHash!.isNotEmpty &&
+        contentHash != null &&
+        metadata.contentHash == contentHash) {
+      job.error = 'Already in cloud';
+      await _metadataStore.markCompleted(
+        assetId: job.assetId,
+        contentHash: metadata.contentHash!,
+        etag: metadata.etag,
+      );
+      return UploadJobStatus.skipped;
+    }
+
+    final resumablePlan = await _startResumablePlan(
+      job,
+      metadata: metadata,
+      totalBytes: totalBytes,
+      contentHash: contentHash,
+    );
+
+    if (resumablePlan != null) {
+      await _uploadWithResumable(
+        job,
+        file,
+        resumablePlan,
+        totalBytes,
+        contentHash,
+      );
+      return UploadJobStatus.completed;
+    }
+
+    await _uploadWithSingleRequest(
+      job,
+      file,
+      totalBytes,
+      contentHash,
+    );
+    return UploadJobStatus.completed;
+  }
+
+  Future<_AssetPreparation?> _prepareAssetForUpload(
+    AssetEntity asset,
+    UploadMetadata? metadata,
+  ) async {
+    try {
+      final file = await _resolveAssetFile(asset);
+      final totalBytes = await file.length();
+      String? hash = metadata?.contentHash;
+      if (hash == null || hash.isEmpty) {
+        hash = await _computeFileHash(file);
+      }
+      return _AssetPreparation(
+        totalBytes: totalBytes,
+        contentHash: hash,
+      );
+    } catch (_) {
+      return null;
+    }
+  }
+
+  Future<File> _resolveAssetFile(AssetEntity asset) async {
+    File? file;
+    try {
+      file = await asset.originFile;
+    } catch (_) {
+      // Ignore origin lookup errors and fall back to the cached file path.
+    }
+    file ??= await asset.file;
+    if (file == null || !(await file.exists())) {
+      throw ApiException(message: 'Unable to read photo data');
+    }
+    return file;
+  }
+
+  Future<String?> _ensureContentHash(
+    UploadJob job, {
+    File? existingFile,
+    UploadMetadata? metadata,
+  }) async {
+    final current = job.contentHash;
+    if (current != null && current.isNotEmpty) {
+      return current;
+    }
+
+    final stored = metadata?.contentHash;
+    if (stored != null && stored.isNotEmpty) {
+      job.contentHash = stored;
+      return stored;
+    }
+
+    final file = existingFile ?? await _resolveAssetFile(job.asset);
+    final hash = await _computeFileHash(file);
+    job.contentHash = hash;
+    return hash;
+  }
+
+  Future<_ResumablePlan?> _startResumablePlan(
+    UploadJob job, {
+    required UploadMetadata? metadata,
+    required int totalBytes,
+    required String? contentHash,
+  }) async {
+    try {
+      final session = await _authService.startResumableUpload(
+        fileName: job.fileName,
+        isPrivate: job.preferences.isPrivate,
+        folder: job.folder,
+        optimize: job.preferences.optimize,
+        totalBytes: totalBytes,
+        contentHash: contentHash,
+        resumeSessionId: metadata?.sessionId,
+        resumeOffset: metadata?.uploadedBytes,
+      );
+
+      if (session == null) {
+        return null;
+      }
+
+      final resumeOffset = metadata?.uploadedBytes ?? 0;
+      if (resumeOffset > 0) {
+        job.uploadedBytes = resumeOffset;
+      }
+
+      await _metadataStore.saveProgress(
+        assetId: job.assetId,
+        uploadedBytes: resumeOffset,
+        totalBytes: totalBytes,
+        sessionId: session.sessionId,
+      );
+
+      return _ResumablePlan(session: session, resumeOffset: resumeOffset);
+    } on ApiException catch (error) {
+      if (error.statusCode == 404 || error.statusCode == 400) {
+        return null;
+      }
+      rethrow;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  Future<void> _uploadWithResumable(
+    UploadJob job,
+    File file,
+    _ResumablePlan plan,
+    int totalBytes,
+    String? contentHash,
+  ) async {
+    final session = plan.session;
+    final chunkSize = session.effectiveChunkSize;
+    final raf = await file.open();
+    try {
+      if (plan.resumeOffset > 0) {
+        await raf.setPosition(plan.resumeOffset);
+      }
+
+      var offset = plan.resumeOffset;
+      while (offset < totalBytes) {
+        final remaining = totalBytes - offset;
+        final readSize = min(chunkSize, remaining);
+        final chunk = await raf.read(readSize);
+        if (chunk.isEmpty) {
+          throw ApiException(message: 'Unexpected end of file while reading');
+        }
+
+        final ack = await _retryWithBackoff(
+          () => _authService.uploadChunk(
+            session: session,
+            bytes: chunk,
+            start: offset,
+            total: totalBytes,
+            isLast: offset + chunk.length >= totalBytes,
+            contentHash: contentHash,
+          ),
+        );
+
+        offset = ack.confirmedBytes;
+        job.uploadedBytes = offset;
+        job.totalBytes = totalBytes;
+
+        if (ack.contentHash != null && ack.contentHash!.isNotEmpty) {
+          job.contentHash = ack.contentHash;
+        }
+        if (ack.etag != null && ack.etag!.isNotEmpty) {
+          job.etag = ack.etag;
+        }
+
+        await _metadataStore.saveProgress(
+          assetId: job.assetId,
+          uploadedBytes: offset,
+          totalBytes: totalBytes,
+          sessionId: session.sessionId,
+        );
+
+        notifyListeners();
+      }
+    } finally {
+      await raf.close();
+    }
+
+    final completion = await _authService.completeResumableUpload(
+      sessionId: session.sessionId,
+      contentHash: job.contentHash ?? contentHash,
+    );
+
+    final finalHash =
+        completion.contentHash ?? job.contentHash ?? contentHash ?? '';
+    final finalEtag = completion.etag ?? job.etag;
+
+    if (finalHash.isNotEmpty) {
+      await _metadataStore.markCompleted(
+        assetId: job.assetId,
+        contentHash: finalHash,
+        etag: finalEtag,
+      );
+      job.contentHash = finalHash;
+      job.etag = finalEtag;
+    } else {
+      await _metadataStore.clearProgress(job.assetId);
+    }
+
+    job.uploadedBytes = totalBytes;
+  }
+
+  Future<void> _uploadWithSingleRequest(
+    UploadJob job,
+    File file,
+    int totalBytes,
+    String? contentHash,
+  ) async {
+    final bytes = await file.readAsBytes();
+    final response = await _authService.uploadFile(
+      fileName: job.fileName,
+      bytes: bytes,
+      isPrivate: job.preferences.isPrivate,
+      folder: job.folder,
+      optimize: job.preferences.optimize,
+      contentHash: contentHash,
+    );
+
+    final returnedHash = _findContentHash(response) ?? contentHash;
+    final etag = _findEtag(response);
+
+    if (returnedHash != null && returnedHash.isNotEmpty) {
+      await _metadataStore.markCompleted(
+        assetId: job.assetId,
+        contentHash: returnedHash,
+        etag: etag,
+      );
+      job.contentHash = returnedHash;
+    } else {
+      await _metadataStore.ensureMetadata(
+        job.assetId,
+        totalBytes: totalBytes,
+      );
+    }
+
+    if (etag != null && etag.isNotEmpty) {
+      job.etag = etag;
+    }
+
+    job.uploadedBytes = totalBytes;
+  }
+
+  Future<T> _retryWithBackoff<T>(Future<T> Function() action) async {
+    const int maxAttempts = 5;
+    var attempt = 0;
+    var delay = const Duration(milliseconds: 400);
+
+    while (true) {
+      attempt += 1;
+      try {
+        return await action();
+      } on ApiException catch (error) {
+        if (attempt >= maxAttempts || !_shouldRetry(error.statusCode)) {
+          rethrow;
+        }
+        final jitter = Duration(milliseconds: _random.nextInt(250));
+        await Future<void>.delayed(delay + jitter);
+        delay *= 2;
+      }
+    }
+  }
+
+  bool _shouldRetry(int? statusCode) {
+    if (statusCode == null) {
+      return false;
+    }
+    if (statusCode == 429) {
+      return true;
+    }
+    return statusCode >= 500 && statusCode < 600;
+  }
+
+  Future<String?> _computeFileHash(File file) async {
+    try {
+      final sink = AccumulatorSink<Digest>();
+      final input = sha256.startChunkedConversion(sink);
+      await for (final chunk in file.openRead()) {
+        input.add(chunk);
+      }
+      input.close();
+      if (sink.events.isEmpty) {
+        return null;
+      }
+      return sink.events.single.toString();
+    } catch (_) {
+      return null;
     }
   }
 
@@ -438,19 +797,6 @@ class GalleryUploadQueue extends ChangeNotifier {
     return _folderPathResolver(null);
   }
 
-  Future<Uint8List> _loadAssetBytes(AssetEntity asset) async {
-    Uint8List? bytes = await asset.originBytes;
-    bytes ??= await asset.thumbnailDataWithSize(
-      const ThumbnailSize.square(1200),
-    );
-
-    if (bytes == null) {
-      throw ApiException(message: 'Unable to read photo data');
-    }
-
-    return bytes;
-  }
-
   String? _findContentHash(Map<String, dynamic> response) {
     for (final entry in response.entries) {
       final dynamic value = entry.value;
@@ -477,6 +823,36 @@ class GalleryUploadQueue extends ChangeNotifier {
     }
     return null;
   }
+
+  String? _findEtag(Map<String, dynamic> response) {
+    for (final entry in response.entries) {
+      final dynamic value = entry.value;
+      if (entry.key.toLowerCase() == 'etag' && value is String) {
+        return value;
+      }
+      if (value is Map<String, dynamic>) {
+        final nested = _findEtag(value);
+        if (nested != null && nested.isNotEmpty) {
+          return nested;
+        }
+      }
+    }
+    return null;
+  }
 }
 
 final GalleryUploadQueue galleryUploadQueue = GalleryUploadQueue();
+
+class _AssetPreparation {
+  const _AssetPreparation({required this.totalBytes, this.contentHash});
+
+  final int totalBytes;
+  final String? contentHash;
+}
+
+class _ResumablePlan {
+  const _ResumablePlan({required this.session, required this.resumeOffset});
+
+  final ResumableUploadSession session;
+  final int resumeOffset;
+}

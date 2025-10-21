@@ -71,22 +71,26 @@ class _PhotoDetailPageState extends State<PhotoDetailPage> {
               child: LayoutBuilder(
                 builder: (context, constraints) {
                   return ClipRect(
-                    child: InteractiveViewer(
-                      minScale: 1,
-                      maxScale: 6,
-                      boundaryMargin: EdgeInsets.zero,
-                      child: SizedBox(
-                        width: constraints.maxWidth,
-                        height: constraints.maxHeight,
-                        child: DecoratedBox(
-                          decoration: const BoxDecoration(color: Colors.black),
-                          child: FittedBox(
-                            fit: BoxFit.contain,
-                            clipBehavior: Clip.hardEdge,
-                            child: Image(
-                              image: AssetEntityImageProvider(
-                                widget.asset,
-                                isOriginal: true,
+                    child: GestureDetector(
+                      behavior: HitTestBehavior.opaque,
+                      onTap: _handlePhotoTap,
+                      child: InteractiveViewer(
+                        minScale: 1,
+                        maxScale: 6,
+                        boundaryMargin: EdgeInsets.zero,
+                        child: SizedBox(
+                          width: constraints.maxWidth,
+                          height: constraints.maxHeight,
+                          child: DecoratedBox(
+                            decoration: const BoxDecoration(color: Colors.black),
+                            child: FittedBox(
+                              fit: BoxFit.contain,
+                              clipBehavior: Clip.hardEdge,
+                              child: Image(
+                                image: AssetEntityImageProvider(
+                                  widget.asset,
+                                  isOriginal: true,
+                                ),
                               ),
                             ),
                           ),
@@ -229,6 +233,15 @@ class _PhotoDetailPageState extends State<PhotoDetailPage> {
     setState(() {
       _contentHash = hash;
       _loadingContentHash = false;
+    });
+  }
+
+  void _handlePhotoTap() {
+    if (!mounted) {
+      return;
+    }
+    setState(() {
+      _showDetails = !_showDetails;
     });
   }
 

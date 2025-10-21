@@ -706,7 +706,7 @@ class _UploadJobRow extends StatelessWidget {
         final message = job.error?.trim();
         return message?.isNotEmpty == true ? message! : 'Upload failed';
       case UploadJobStatus.skipped:
-        return 'Already synced';
+        return job.error?.isNotEmpty == true ? job.error! : 'Already in cloud';
       case UploadJobStatus.cancelled:
         return 'Cancelled';
     }
