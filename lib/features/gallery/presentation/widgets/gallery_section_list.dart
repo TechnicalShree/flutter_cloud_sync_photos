@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:photo_manager/photo_manager.dart';
 
 import '../../data/services/upload_metadata_store.dart';
+import 'gallery_selection_hit_target.dart';
 import 'gallery_sliver_grid.dart';
 
 class GallerySection {
@@ -22,6 +23,9 @@ class GallerySectionList extends StatelessWidget {
     this.hideSelectionIndicatorAssetIds = const <String>{},
     this.onAssetTap,
     this.onAssetLongPress,
+    this.onAssetLongPressStart,
+    this.onAssetLongPressMoveUpdate,
+    this.onAssetLongPressEnd,
     this.onAssetUpload,
   });
 
@@ -33,6 +37,9 @@ class GallerySectionList extends StatelessWidget {
   final Set<String> hideSelectionIndicatorAssetIds;
   final ValueChanged<AssetEntity>? onAssetTap;
   final ValueChanged<AssetEntity>? onAssetLongPress;
+  final AssetLongPressStartCallback? onAssetLongPressStart;
+  final AssetLongPressMoveUpdateCallback? onAssetLongPressMoveUpdate;
+  final AssetLongPressEndCallback? onAssetLongPressEnd;
   final ValueChanged<AssetEntity>? onAssetUpload;
 
   @override
@@ -53,6 +60,9 @@ class GallerySectionList extends StatelessWidget {
             hideSelectionIndicatorAssetIds: hideSelectionIndicatorAssetIds,
             onAssetTap: onAssetTap,
             onAssetLongPress: onAssetLongPress,
+            onAssetLongPressStart: onAssetLongPressStart,
+            onAssetLongPressMoveUpdate: onAssetLongPressMoveUpdate,
+            onAssetLongPressEnd: onAssetLongPressEnd,
             onAssetUpload: onAssetUpload,
           ),
         );
@@ -71,6 +81,9 @@ class _GallerySectionView extends StatelessWidget {
     required this.hideSelectionIndicatorAssetIds,
     this.onAssetTap,
     this.onAssetLongPress,
+    this.onAssetLongPressStart,
+    this.onAssetLongPressMoveUpdate,
+    this.onAssetLongPressEnd,
     this.onAssetUpload,
   });
 
@@ -82,6 +95,9 @@ class _GallerySectionView extends StatelessWidget {
   final Set<String> hideSelectionIndicatorAssetIds;
   final ValueChanged<AssetEntity>? onAssetTap;
   final ValueChanged<AssetEntity>? onAssetLongPress;
+  final AssetLongPressStartCallback? onAssetLongPressStart;
+  final AssetLongPressMoveUpdateCallback? onAssetLongPressMoveUpdate;
+  final AssetLongPressEndCallback? onAssetLongPressEnd;
   final ValueChanged<AssetEntity>? onAssetUpload;
 
   @override
@@ -129,20 +145,34 @@ class _GallerySectionView extends StatelessWidget {
               itemCount: section.assets.length,
               itemBuilder: (context, index) {
                 final asset = section.assets[index];
-                return GalleryTile(
-                  asset: asset,
-                  theme: theme,
-                  metadataStore: metadataStore,
-                  selectionMode: selectionMode,
-                  isSelected: selectedAssetIds.contains(asset.id),
-                  isUploading: uploadingAssetIds.contains(asset.id),
-                  showSelectionIndicator:
-                      !hideSelectionIndicatorAssetIds.contains(asset.id),
-                  onTap: () => onAssetTap?.call(asset),
-                  onLongPress: () => onAssetLongPress?.call(asset),
-                  onUpload: onAssetUpload != null
-                      ? () => onAssetUpload?.call(asset)
-                      : null,
+                return GallerySelectionHitTarget(
+                  assetId: asset.id,
+                  child: GalleryTile(
+                    asset: asset,
+                    theme: theme,
+                    metadataStore: metadataStore,
+                    selectionMode: selectionMode,
+                    isSelected: selectedAssetIds.contains(asset.id),
+                    isUploading: uploadingAssetIds.contains(asset.id),
+                    showSelectionIndicator:
+                        !hideSelectionIndicatorAssetIds.contains(asset.id),
+                    onTap: () => onAssetTap?.call(asset),
+                    onLongPress: () => onAssetLongPress?.call(asset),
+                    onLongPressStart: onAssetLongPressStart != null
+                        ? (details) =>
+                            onAssetLongPressStart!(asset, details)
+                        : null,
+                    onLongPressMoveUpdate: onAssetLongPressMoveUpdate != null
+                        ? (details) =>
+                            onAssetLongPressMoveUpdate!(asset, details)
+                        : null,
+                    onLongPressEnd: onAssetLongPressEnd != null
+                        ? (details) => onAssetLongPressEnd!(asset, details)
+                        : null,
+                    onUpload: onAssetUpload != null
+                        ? () => onAssetUpload?.call(asset)
+                        : null,
+                  ),
                 );
               },
             ),

@@ -183,6 +183,47 @@ class GalleryUploadQueue extends ChangeNotifier {
     return true;
   }
 
+  Future<int> retryFailedJobs({
+    Set<String>? assetIds,
+    bool onlyApiFailures = false,
+  }) async {
+    final targets = assetIds ?? _jobs.keys.toSet();
+    int retried = 0;
+
+    for (final id in targets) {
+      final job = _jobs[id];
+      if (job == null) {
+        continue;
+      }
+      if (job.status != UploadJobStatus.failed) {
+        continue;
+      }
+
+      if (onlyApiFailures) {
+        final message = job.error?.toLowerCase() ?? '';
+        final matchesApiFailure = message.isEmpty ||
+            message.contains('api') ||
+            message.contains('network') ||
+            message.contains('timeout');
+        if (!matchesApiFailure) {
+          continue;
+        }
+      }
+
+      job.status = UploadJobStatus.queued;
+      job.error = null;
+      _queue.add(job);
+      retried += 1;
+    }
+
+    if (retried > 0) {
+      notifyListeners();
+      unawaited(_processQueue());
+    }
+
+    return retried;
+  }
+
   Future<void> _processQueue() async {
     if (_processing) {
       return;

@@ -39,6 +39,8 @@ dependencies:
   shared_preferences: ^2.2.3
   photo_manager: ^3.7.1
   photo_manager_image_provider: ^2.2.0
+  dynamic_color: ^1.6.9
+  animations: ^2.0.11
 
 dev_dependencies:
   flutter_test:

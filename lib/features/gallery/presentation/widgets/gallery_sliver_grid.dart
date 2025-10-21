@@ -5,11 +5,27 @@ import 'package:photo_manager/photo_manager.dart';
 import 'package:photo_manager_image_provider/photo_manager_image_provider.dart';
 
 import '../../data/services/upload_metadata_store.dart';
+import 'gallery_selection_hit_target.dart';
 
 const double _gridSpacing = 8.0;
 const EdgeInsets _gridPadding = EdgeInsets.symmetric(horizontal: 12, vertical: 16);
 const double _tileRadius = 12.0;
 const Duration _tileAnimationDuration = Duration(milliseconds: 220);
+
+typedef AssetLongPressStartCallback = void Function(
+  AssetEntity asset,
+  LongPressStartDetails details,
+);
+
+typedef AssetLongPressMoveUpdateCallback = void Function(
+  AssetEntity asset,
+  LongPressMoveUpdateDetails details,
+);
+
+typedef AssetLongPressEndCallback = void Function(
+  AssetEntity asset,
+  LongPressEndDetails details,
+);
 
 class GallerySliverGrid extends StatelessWidget {
   const GallerySliverGrid({
@@ -22,6 +38,9 @@ class GallerySliverGrid extends StatelessWidget {
     this.hideSelectionIndicatorAssetIds = const <String>{},
     this.onAssetTap,
     this.onAssetLongPress,
+    this.onAssetLongPressStart,
+    this.onAssetLongPressMoveUpdate,
+    this.onAssetLongPressEnd,
     this.onAssetUpload,
   });
 
@@ -33,6 +52,9 @@ class GallerySliverGrid extends StatelessWidget {
   final Set<String> hideSelectionIndicatorAssetIds;
   final ValueChanged<AssetEntity>? onAssetTap;
   final ValueChanged<AssetEntity>? onAssetLongPress;
+  final AssetLongPressStartCallback? onAssetLongPressStart;
+  final AssetLongPressMoveUpdateCallback? onAssetLongPressMoveUpdate;
+  final AssetLongPressEndCallback? onAssetLongPressEnd;
   final ValueChanged<AssetEntity>? onAssetUpload;
 
   @override
@@ -48,21 +70,33 @@ class GallerySliverGrid extends StatelessWidget {
         ),
         delegate: SliverChildBuilderDelegate((context, index) {
           final asset = assets[index];
-          return GalleryTile(
-            asset: asset,
-            theme: theme,
-            metadataStore: metadataStore,
-            selectionMode: selectionMode,
-            isSelected: selectedAssetIds.contains(asset.id),
-            isUploading: uploadingAssetIds.contains(asset.id),
-            showSelectionIndicator: !hideSelectionIndicatorAssetIds.contains(
-              asset.id,
+          return GallerySelectionHitTarget(
+            assetId: asset.id,
+            child: GalleryTile(
+              asset: asset,
+              theme: theme,
+              metadataStore: metadataStore,
+              selectionMode: selectionMode,
+              isSelected: selectedAssetIds.contains(asset.id),
+              isUploading: uploadingAssetIds.contains(asset.id),
+              showSelectionIndicator: !hideSelectionIndicatorAssetIds.contains(
+                asset.id,
+              ),
+              onTap: () => onAssetTap?.call(asset),
+              onLongPress: () => onAssetLongPress?.call(asset),
+              onLongPressStart: onAssetLongPressStart != null
+                  ? (details) => onAssetLongPressStart!(asset, details)
+                  : null,
+              onLongPressMoveUpdate: onAssetLongPressMoveUpdate != null
+                  ? (details) => onAssetLongPressMoveUpdate!(asset, details)
+                  : null,
+              onLongPressEnd: onAssetLongPressEnd != null
+                  ? (details) => onAssetLongPressEnd!(asset, details)
+                  : null,
+              onUpload: onAssetUpload != null
+                  ? () => onAssetUpload?.call(asset)
+                  : null,
             ),
-            onTap: () => onAssetTap?.call(asset),
-            onLongPress: () => onAssetLongPress?.call(asset),
-            onUpload: onAssetUpload != null
-                ? () => onAssetUpload?.call(asset)
-                : null,
           );
         }, childCount: assets.length),
       ),
@@ -82,6 +116,9 @@ class GalleryTile extends StatefulWidget {
     this.showSelectionIndicator = true,
     this.onTap,
     this.onLongPress,
+    this.onLongPressStart,
+    this.onLongPressMoveUpdate,
+    this.onLongPressEnd,
     this.onUpload,
   });
 
@@ -94,6 +131,9 @@ class GalleryTile extends StatefulWidget {
   final bool showSelectionIndicator;
   final VoidCallback? onTap;
   final VoidCallback? onLongPress;
+  final GestureLongPressStartCallback? onLongPressStart;
+  final GestureLongPressMoveUpdateCallback? onLongPressMoveUpdate;
+  final GestureLongPressEndCallback? onLongPressEnd;
   final VoidCallback? onUpload;
 
   @override
@@ -128,14 +168,12 @@ class _GalleryTileState extends State<GalleryTile> {
         final theme = widget.theme;
         final isUploaded = snapshot.data ?? false;
         final uploading = widget.isUploading;
-        final isSelectable = !isUploaded && !uploading;
         final effectiveOnTap =
-            widget.selectionMode && !isSelectable ? null : widget.onTap;
+            widget.onTap != null && !uploading ? widget.onTap : null;
         final effectiveOnLongPress =
-            isSelectable ? widget.onLongPress : null;
+            widget.onLongPress != null && !uploading ? widget.onLongPress : null;
         final showSelection = widget.selectionMode &&
             widget.showSelectionIndicator &&
-            !isUploaded &&
             !uploading;
 
         final bool hasInteraction =
@@ -206,14 +244,19 @@ class _GalleryTileState extends State<GalleryTile> {
         return MouseRegion(
           onEnter: (_) => _handleHover(true),
           onExit: (_) => _handleHover(false),
-          child: AnimatedScale(
-            scale: scale,
-            duration: _tileAnimationDuration,
-            curve: Curves.easeOutBack,
-            child: AnimatedContainer(
+          child: GestureDetector(
+            behavior: HitTestBehavior.opaque,
+            onLongPressStart: widget.onLongPressStart,
+            onLongPressMoveUpdate: widget.onLongPressMoveUpdate,
+            onLongPressEnd: widget.onLongPressEnd,
+            child: AnimatedScale(
+              scale: scale,
               duration: _tileAnimationDuration,
-              curve: Curves.easeInOut,
-              decoration: BoxDecoration(
+              curve: Curves.easeOutBack,
+              child: AnimatedContainer(
+                duration: _tileAnimationDuration,
+                curve: Curves.easeInOut,
+                decoration: BoxDecoration(
                 borderRadius: BorderRadius.circular(_tileRadius + 6),
                 gradient: LinearGradient(
                   begin: Alignment.topLeft,
