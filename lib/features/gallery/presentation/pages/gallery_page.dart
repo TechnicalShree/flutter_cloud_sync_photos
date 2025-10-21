@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:ui';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:flutter_cloud_sync_photos/core/navigation/shared_axis_page_route.dart';
 import 'package:flutter_cloud_sync_photos/core/network/api_exception.dart';
 import 'package:flutter_cloud_sync_photos/features/auth/data/services/auth_service.dart';
@@ -599,8 +600,6 @@ class _GalleryPageState extends State<GalleryPage> {
       createTimeCond: DateTimeCond(
         min: start,
         max: end,
-        minInclude: true,
-        maxInclude: true,
       ),
       orders: const [
         OrderOption(type: OrderOptionType.createDate, asc: false),
@@ -865,7 +864,7 @@ class _GalleryPageState extends State<GalleryPage> {
           decoration: BoxDecoration(
             gradient: LinearGradient(
               colors: [
-                theme.colorScheme.primary.withValues(alpha: 0.06),
+                theme.colorScheme.primary.withOpacity(0.06),
                 theme.colorScheme.surfaceContainerHigh,
                 theme.colorScheme.surface,
               ],
@@ -1262,9 +1261,9 @@ class _GalleryGlassHeader extends StatelessWidget {
                 begin: Alignment.topCenter,
                 end: Alignment.bottomCenter,
                 colors: [
-                  Colors.black.withValues(alpha: 0.55),
-                  Colors.black.withValues(alpha: 0.20),
-                  Colors.black.withValues(alpha: 0.05),
+                  Colors.black.withOpacity(0.55),
+                  Colors.black.withOpacity(0.20),
+                  Colors.black.withOpacity(0.05),
                 ],
               ),
             ),
@@ -1284,9 +1283,9 @@ class _GalleryGlassHeader extends StatelessWidget {
                   vertical: 20,
                 ),
                 decoration: BoxDecoration(
-                  color: Colors.white.withValues(alpha: 0.12),
+                  color: Colors.white.withOpacity(0.12),
                   border: Border.all(
-                    color: Colors.white.withValues(alpha: 0.18),
+                    color: Colors.white.withOpacity(0.18),
                   ),
                   borderRadius: BorderRadius.circular(28),
                   boxShadow: const [
@@ -1313,7 +1312,7 @@ class _GalleryGlassHeader extends StatelessWidget {
                       Text(
                         subtitle,
                         style: theme.textTheme.bodyMedium?.copyWith(
-                          color: Colors.white.withValues(alpha: 0.85),
+                          color: Colors.white.withOpacity(0.85),
                         ),
                       ),
                     ],
@@ -1377,7 +1376,7 @@ class _GalleryGlassIconButton extends StatelessWidget {
       child: BackdropFilter(
         filter: ImageFilter.blur(sigmaX: 12, sigmaY: 12),
         child: Material(
-          color: Colors.white.withValues(alpha: enabled ? 0.18 : 0.08),
+          color: Colors.white.withOpacity(enabled ? 0.18 : 0.08),
           child: InkWell(
             onTap: onPressed,
             child: SizedBox(
@@ -1385,7 +1384,7 @@ class _GalleryGlassIconButton extends StatelessWidget {
               height: 40,
               child: Icon(
                 icon,
-                color: Colors.white.withValues(alpha: enabled ? 1 : 0.4),
+                color: Colors.white.withOpacity(enabled ? 1 : 0.4),
               ),
             ),
           ),
@@ -1413,7 +1412,7 @@ class _GalleryGlassProgressIndicator extends StatelessWidget {
           height: 40,
           alignment: Alignment.center,
           decoration: BoxDecoration(
-            color: Colors.white.withValues(alpha: 0.18),
+            color: Colors.white.withOpacity(0.18),
             shape: BoxShape.circle,
           ),
           child: const SizedBox(

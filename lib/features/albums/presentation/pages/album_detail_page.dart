@@ -642,7 +642,7 @@ class _GlassIconButton extends StatelessWidget {
       child: BackdropFilter(
         filter: ImageFilter.blur(sigmaX: 12, sigmaY: 12),
         child: Material(
-          color: Colors.white.withValues(alpha: 0.18),
+          color: Colors.white.withOpacity(0.18),
           child: InkWell(
             onTap: onPressed,
             child: SizedBox(
@@ -675,7 +675,7 @@ class _GlassProgressIndicator extends StatelessWidget {
           height: 40,
           alignment: Alignment.center,
           decoration: BoxDecoration(
-            color: Colors.white.withValues(alpha: 0.18),
+            color: Colors.white.withOpacity(0.18),
             shape: BoxShape.circle,
           ),
           child: const SizedBox(
@@ -722,9 +722,9 @@ class _GlassHeader extends StatelessWidget {
                 begin: Alignment.topCenter,
                 end: Alignment.bottomCenter,
                 colors: [
-                  Colors.black.withValues(alpha: 0.55),
-                  Colors.black.withValues(alpha: 0.20),
-                  Colors.black.withValues(alpha: 0.05),
+                  Colors.black.withOpacity(0.55),
+                  Colors.black.withOpacity(0.20),
+                  Colors.black.withOpacity(0.05),
                 ],
               ),
             ),
@@ -744,9 +744,9 @@ class _GlassHeader extends StatelessWidget {
                   vertical: 20,
                 ),
                 decoration: BoxDecoration(
-                  color: Colors.white.withValues(alpha: 0.12),
+                  color: Colors.white.withOpacity(0.12),
                   border: Border.all(
-                    color: Colors.white.withValues(alpha: 0.18),
+                    color: Colors.white.withOpacity(0.18),
                   ),
                   borderRadius: BorderRadius.circular(28),
                   boxShadow: const [
@@ -771,7 +771,7 @@ class _GlassHeader extends StatelessWidget {
                     Text(
                       countLabel,
                       style: theme.textTheme.bodyMedium?.copyWith(
-                        color: Colors.white.withValues(alpha: 0.85),
+                        color: Colors.white.withOpacity(0.85),
                       ),
                     ),
                   ],

@@ -4,7 +4,8 @@ import 'package:flutter/material.dart';
 class SharedAxisPageRoute<T> extends PageRouteBuilder<T> {
   SharedAxisPageRoute({
     required WidgetBuilder builder,
-    AxisTransitionType transitionType = AxisTransitionType.scaled,
+    SharedAxisTransitionType transitionType =
+        SharedAxisTransitionType.scaled,
     RouteSettings? settings,
     Duration transitionDuration = const Duration(milliseconds: 320),
     Duration reverseTransitionDuration = const Duration(milliseconds: 260),

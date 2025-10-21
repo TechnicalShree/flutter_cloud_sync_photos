@@ -119,13 +119,13 @@ class _GallerySectionView extends StatelessWidget {
         DecoratedBox(
           decoration: BoxDecoration(
             borderRadius: BorderRadius.circular(24),
-            color: theme.colorScheme.surfaceContainerHigh.withValues(alpha: 0.6),
+            color: theme.colorScheme.surfaceContainerHigh.withOpacity(0.6),
             border: Border.all(
-              color: theme.colorScheme.onSurface.withValues(alpha: 0.05),
+              color: theme.colorScheme.onSurface.withOpacity(0.05),
             ),
             boxShadow: [
               BoxShadow(
-                color: Colors.black.withValues(alpha: 0.08),
+                color: Colors.black.withOpacity(0.08),
                 blurRadius: 20,
                 offset: const Offset(0, 12),
               ),

@@ -39,7 +39,7 @@ class GalleryPermissionPrompt extends StatelessWidget {
               BoxShadow(
                 blurRadius: 24,
                 offset: const Offset(0, 12),
-                color: colorScheme.shadow.withValues(alpha: 0.12),
+                color: colorScheme.shadow.withOpacity(0.12),
               ),
             ],
           ),

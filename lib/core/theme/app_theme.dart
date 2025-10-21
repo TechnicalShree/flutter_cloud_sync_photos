@@ -23,9 +23,10 @@ class AppTheme {
 
   static ThemeData _buildTheme(ColorScheme colorScheme) {
     final brightness = colorScheme.brightness;
+    final baseTypography = Typography.material2021();
     final baseTextTheme = brightness == Brightness.dark
-        ? Typography.material2021.white
-        : Typography.material2021.black;
+        ? baseTypography.white
+        : baseTypography.black;
 
     final textTheme = baseTextTheme
         .apply(
@@ -107,7 +108,7 @@ class AppTheme {
         ),
         actionTextColor: colorScheme.primary,
       ),
-      cardTheme: CardTheme(
+      cardTheme: CardThemeData(
         color: colorScheme.surfaceContainerLow,
         elevation: 0,
         shape: RoundedRectangleBorder(

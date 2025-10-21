@@ -186,10 +186,9 @@ class _GalleryTileState extends State<GalleryTile> {
                     ? 1.02
                     : 1.0;
         final Color borderColor = Color.alphaBlend(
-          theme.colorScheme.primary.withValues(
-            alpha: widget.isSelected || widget.isUploading ? 0.24 : 0.08,
-          ),
-          theme.colorScheme.outlineVariant.withValues(alpha: 0.2),
+          theme.colorScheme.primary
+              .withOpacity(widget.isSelected || widget.isUploading ? 0.24 : 0.08),
+          theme.colorScheme.outlineVariant.withOpacity(0.2),
         );
 
         final Widget topRightChild;
@@ -231,7 +230,7 @@ class _GalleryTileState extends State<GalleryTile> {
 
         final Color resolvedOverlayColor = overlayOpacity <= 0
             ? Colors.transparent
-            : overlayBaseColor.withValues(alpha: overlayOpacity);
+            : overlayBaseColor.withOpacity(overlayOpacity);
 
         final double gradientOpacity = widget.selectionMode || widget.isSelected
             ? 1
@@ -257,63 +256,63 @@ class _GalleryTileState extends State<GalleryTile> {
                 duration: _tileAnimationDuration,
                 curve: Curves.easeInOut,
                 decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(_tileRadius + 6),
-                gradient: LinearGradient(
-                  begin: Alignment.topLeft,
-                  end: Alignment.bottomRight,
-                  colors: [
-                    Color.alphaBlend(
-                      theme.colorScheme.primary
-                          .withValues(alpha: widget.isSelected ? 0.12 : 0.06),
-                      theme.colorScheme.surfaceContainerHigh,
+                  borderRadius: BorderRadius.circular(_tileRadius + 6),
+                  gradient: LinearGradient(
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                    colors: [
+                      Color.alphaBlend(
+                        theme.colorScheme.primary
+                            .withOpacity(widget.isSelected ? 0.12 : 0.06),
+                        theme.colorScheme.surfaceContainerHigh,
+                      ),
+                      theme.colorScheme.surface,
+                    ],
+                  ),
+                  border: Border.all(
+                    color: borderColor,
+                    width: 1,
+                  ),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withOpacity(0.12),
+                      blurRadius: 16,
+                      offset: const Offset(0, 10),
                     ),
-                    theme.colorScheme.surface,
+                    if (widget.isSelected || uploading || _isHovered)
+                      BoxShadow(
+                        color: (widget.isSelected
+                                ? theme.colorScheme.primary
+                                : uploading
+                                    ? theme.colorScheme.secondary
+                                    : theme.colorScheme.primary)
+                            .withOpacity(
+                          widget.isSelected
+                              ? 0.24
+                              : uploading
+                                  ? 0.18
+                                  : 0.14,
+                        ),
+                        blurRadius: 20,
+                        spreadRadius: 1,
+                      ),
                   ],
                 ),
-                border: Border.all(
-                  color: borderColor,
-                  width: 1,
-                ),
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.black.withValues(alpha: 0.12),
-                    blurRadius: 16,
-                    offset: const Offset(0, 10),
-                  ),
-                  if (widget.isSelected || uploading || _isHovered)
-                    BoxShadow(
-                      color: (widget.isSelected
-                              ? theme.colorScheme.primary
-                              : uploading
-                                  ? theme.colorScheme.secondary
-                                  : theme.colorScheme.primary)
-                          .withValues(
-                        alpha: widget.isSelected
-                            ? 0.24
-                            : uploading
-                                ? 0.18
-                                : 0.14,
-                      ),
-                      blurRadius: 20,
-                      spreadRadius: 1,
-                    ),
-                ],
-              ),
-              child: ClipRRect(
-                borderRadius: BorderRadius.circular(_tileRadius),
-                child: Material(
-                  color: Colors.transparent,
-                  child: InkWell(
-                    splashColor:
-                        theme.colorScheme.primary.withValues(alpha: 0.18),
-                    highlightColor: Colors.white.withValues(alpha: 0.05),
-                    onTap: effectiveOnTap,
-                    onLongPress: effectiveOnLongPress,
-                    onHighlightChanged:
-                        hasInteraction ? _handleHighlight : null,
-                    child: Stack(
-                      fit: StackFit.expand,
-                      children: [
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(_tileRadius),
+                  child: Material(
+                    color: Colors.transparent,
+                    child: InkWell(
+                      splashColor:
+                          theme.colorScheme.primary.withOpacity(0.18),
+                      highlightColor: Colors.white.withOpacity(0.05),
+                      onTap: effectiveOnTap,
+                      onLongPress: effectiveOnLongPress,
+                      onHighlightChanged:
+                          hasInteraction ? _handleHighlight : null,
+                      child: Stack(
+                        fit: StackFit.expand,
+                        children: [
                         Hero(
                           tag: widget.asset.id,
                           transitionOnUserGestures: true,
@@ -361,7 +360,7 @@ class _GalleryTileState extends State<GalleryTile> {
                                 ? DecoratedBox(
                                     key: const ValueKey('favorite'),
                                     decoration: BoxDecoration(
-                                      color: Colors.black.withValues(alpha: 0.45),
+                                      color: Colors.black.withOpacity(0.45),
                                       borderRadius: BorderRadius.circular(10),
                                     ),
                                     child: const Padding(
@@ -484,7 +483,7 @@ class _GradientOverlay extends StatelessWidget {
                 end: Alignment.bottomCenter,
                 colors: [
                   Colors.transparent,
-                  theme.colorScheme.scrim.withValues(alpha: 0.32),
+                  theme.colorScheme.scrim.withOpacity(0.32),
                 ],
               ),
             ),
@@ -529,7 +528,7 @@ class _GlassCircleButtonState extends State<_GlassCircleButton> {
           shape: BoxShape.circle,
           boxShadow: [
             BoxShadow(
-              color: Colors.black.withValues(alpha: _isPressed ? 0.12 : 0.18),
+              color: Colors.black.withOpacity(_isPressed ? 0.12 : 0.18),
               blurRadius: _isPressed ? 8 : 14,
               spreadRadius: _isPressed ? 0 : 1,
             ),
@@ -539,7 +538,7 @@ class _GlassCircleButtonState extends State<_GlassCircleButton> {
           child: BackdropFilter(
             filter: ImageFilter.blur(sigmaX: 12, sigmaY: 12),
             child: Material(
-              color: Colors.white.withValues(alpha: 0.18),
+              color: Colors.white.withOpacity(0.18),
               child: InkWell(
                 onTap: widget.onPressed,
                 customBorder: const CircleBorder(),
@@ -581,7 +580,7 @@ class _UploadProgressDot extends StatelessWidget {
       child: CircularProgressIndicator(
         strokeWidth: 2.4,
         valueColor: AlwaysStoppedAnimation<Color>(colorScheme.primary),
-        backgroundColor: Colors.white.withValues(alpha: 0.4),
+        backgroundColor: Colors.white.withOpacity(0.4),
       ),
     );
   }
@@ -596,7 +595,7 @@ class _SyncedBadge extends StatelessWidget {
       message: 'Already synced',
       child: DecoratedBox(
         decoration: BoxDecoration(
-          color: Colors.black.withValues(alpha: 0.55),
+          color: Colors.black.withOpacity(0.55),
           borderRadius: BorderRadius.circular(12),
         ),
         child: Padding(
@@ -638,7 +637,7 @@ class _SelectionIndicator extends StatelessWidget {
         shape: BoxShape.circle,
         color: selected
             ? colorScheme.primary
-            : Colors.white.withValues(alpha: 0.2),
+            : Colors.white.withOpacity(0.2),
         border: Border.all(color: Colors.white, width: 2),
       ),
       child: AnimatedSwitcher(
