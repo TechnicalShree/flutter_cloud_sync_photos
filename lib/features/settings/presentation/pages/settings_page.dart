@@ -645,7 +645,7 @@ class _InfoRow extends StatelessWidget {
         Text(
           label,
           style: theme.textTheme.labelSmall?.copyWith(
-            color: theme.colorScheme.onSurfaceVariant.withValues(alpha: 0.7),
+            color: theme.colorScheme.onSurfaceVariant.withOpacity(0.7),
             letterSpacing: 0.4,
           ),
         ),
@@ -673,7 +673,7 @@ class _SectionCard extends StatelessWidget {
     return Card(
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
       elevation: 0,
-      color: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.45),
+      color: theme.colorScheme.surfaceContainerHighest.withOpacity(0.45),
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
         child: Column(

@@ -2,6 +2,10 @@ import 'dart:async';
 import 'dart:ui';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
+import 'package:flutter_cloud_sync_photos/core/navigation/shared_axis_page_route.dart';
+import 'package:flutter_cloud_sync_photos/core/network/api_exception.dart';
+import 'package:flutter_cloud_sync_photos/features/auth/data/services/auth_service.dart';
 import 'package:photo_manager/photo_manager.dart';
 import 'package:photo_manager_image_provider/photo_manager_image_provider.dart';
 
@@ -13,6 +17,7 @@ import '../widgets/gallery_loading_state.dart';
 import '../widgets/gallery_permission_prompt.dart';
 import '../widgets/gallery_refresh_indicator.dart';
 import '../widgets/gallery_section_list.dart';
+import '../widgets/gallery_selection_hit_target.dart';
 
 class GalleryPage extends StatefulWidget {
   const GalleryPage({super.key});
@@ -23,6 +28,33 @@ class GalleryPage extends StatefulWidget {
 
 class _GalleryPageState extends State<GalleryPage> {
   static const int _pageSize = 60;
+  static final List<_BulkSelectPreset> _bulkPresets = [
+    _BulkSelectPreset(
+      label: 'Today',
+      description: 'Photos captured today',
+      computeRange: _computeTodayRange,
+    ),
+    _BulkSelectPreset(
+      label: 'Yesterday',
+      description: 'Photos captured yesterday',
+      computeRange: _computeYesterdayRange,
+    ),
+    _BulkSelectPreset(
+      label: 'Last 7 days',
+      description: 'Photos from the last week',
+      computeRange: _computeLast7DaysRange,
+    ),
+    _BulkSelectPreset(
+      label: 'This month',
+      description: 'All photos from this month',
+      computeRange: _computeThisMonthRange,
+    ),
+    _BulkSelectPreset(
+      label: 'Last month',
+      description: 'Photos from the previous month',
+      computeRange: _computeLastMonthRange,
+    ),
+  ];
 
   bool _isLoading = true;
   bool _hasPermission = false;
@@ -32,9 +64,13 @@ class _GalleryPageState extends State<GalleryPage> {
 
   final UploadMetadataStore _metadataStore = UploadMetadataStore();
   final Set<String> _selectedAssetIds = <String>{};
+  final Map<String, AssetEntity> _selectedAssets = <String, AssetEntity>{};
   late final GalleryUploadQueue _uploadQueue;
   Set<String> _uploadingAssetIds = const <String>{};
+  Set<String> _failedUploadAssetIds = const <String>{};
   bool _hasActiveUploads = false;
+  bool _isProcessingSelectionAction = false;
+  bool _dragSelecting = false;
   VoidCallback? _uploadQueueListener;
 
   List<AssetEntity> _assets = const <AssetEntity>[];
@@ -141,15 +177,21 @@ class _GalleryPageState extends State<GalleryPage> {
   void _syncUploadState({bool notify = false}) {
     final uploadingIds = _uploadQueue.activeAssetIds.toSet();
     final hasActive = _uploadQueue.hasActiveUploads;
+    final failedIds = _uploadQueue.jobs
+        .where((job) => job.status == UploadJobStatus.failed)
+        .map((job) => job.assetId)
+        .toSet();
 
     if (notify) {
       setState(() {
         _uploadingAssetIds = uploadingIds;
         _hasActiveUploads = hasActive;
+        _failedUploadAssetIds = failedIds;
       });
     } else {
       _uploadingAssetIds = uploadingIds;
       _hasActiveUploads = hasActive;
+      _failedUploadAssetIds = failedIds;
     }
   }
 
@@ -194,8 +236,18 @@ class _GalleryPageState extends State<GalleryPage> {
       _isLoading = false;
       _isLoadingMore = false;
 
-      final availableIds = _assets.map((asset) => asset.id).toSet();
-      _selectedAssetIds.removeWhere((id) => !availableIds.contains(id));
+      final availableById = <String, AssetEntity>{
+        for (final asset in _assets) asset.id: asset,
+      };
+      for (final id in _selectedAssetIds) {
+        final asset = availableById[id];
+        if (asset != null) {
+          _selectedAssets[id] = asset;
+        }
+      }
+      _selectedAssets.removeWhere(
+        (id, _) => !_selectedAssetIds.contains(id),
+      );
       if (_selectedAssetIds.isEmpty) {
         _selectionMode = false;
       }
@@ -244,13 +296,70 @@ class _GalleryPageState extends State<GalleryPage> {
       return;
     }
 
-    Navigator.of(
-      context,
-    ).push(MaterialPageRoute(builder: (_) => PhotoDetailPage(asset: asset)));
+    Navigator.of(context).push(
+      SharedAxisPageRoute(
+        builder: (_) => PhotoDetailPage(asset: asset),
+      ),
+    );
   }
 
   void _handleAssetLongPress(AssetEntity asset) {
+    if (_dragSelecting) {
+      return;
+    }
     unawaited(_toggleSelection(asset));
+  }
+
+  void _handleAssetLongPressStart(
+    AssetEntity asset,
+    LongPressStartDetails details,
+  ) {
+    if (_isProcessingSelectionAction) {
+      return;
+    }
+    _dragSelecting = true;
+    unawaited(_toggleSelection(asset));
+  }
+
+  void _handleAssetLongPressMoveUpdate(
+    AssetEntity asset,
+    LongPressMoveUpdateDetails details,
+  ) {
+    if (!_dragSelecting) {
+      return;
+    }
+    _updateDragSelection(details.globalPosition);
+  }
+
+  void _handleAssetLongPressEnd(
+    AssetEntity asset,
+    LongPressEndDetails details,
+  ) {
+    if (!_dragSelecting) {
+      return;
+    }
+    _dragSelecting = false;
+  }
+
+  void _updateDragSelection(Offset globalPosition) {
+    final binding = WidgetsBinding.instance;
+    final result = HitTestResult();
+    binding.hitTest(result, globalPosition);
+
+    for (final entry in result.path) {
+      final target = entry.target;
+      if (target is RenderGallerySelectionHitTarget) {
+        final assetId = target.assetId;
+        if (_selectedAssetIds.contains(assetId)) {
+          return;
+        }
+        final asset = _findAssetInSections(assetId);
+        if (asset != null) {
+          unawaited(_toggleSelection(asset));
+        }
+        return;
+      }
+    }
   }
 
   Future<void> _toggleSelection(AssetEntity asset) async {
@@ -266,20 +375,6 @@ class _GalleryPageState extends State<GalleryPage> {
     }
 
     final isAlreadySelected = _selectedAssetIds.contains(id);
-    if (!isAlreadySelected) {
-      final alreadyUploaded = await _metadataStore.isUploaded(id);
-      if (!mounted) {
-        return;
-      }
-      if (alreadyUploaded) {
-        final messenger = ScaffoldMessenger.of(context);
-        messenger.hideCurrentSnackBar();
-        messenger.showSnackBar(
-          const SnackBar(content: Text('Photo already synced')),
-        );
-        return;
-      }
-    }
 
     if (!mounted) {
       return;
@@ -288,11 +383,13 @@ class _GalleryPageState extends State<GalleryPage> {
     setState(() {
       if (isAlreadySelected) {
         _selectedAssetIds.remove(id);
+        _selectedAssets.remove(id);
         if (_selectedAssetIds.isEmpty) {
           _selectionMode = false;
         }
       } else {
         _selectedAssetIds.add(id);
+        _selectedAssets[id] = asset;
         _selectionMode = true;
       }
     });
@@ -304,25 +401,47 @@ class _GalleryPageState extends State<GalleryPage> {
     }
     setState(() {
       _selectedAssetIds.clear();
+      _selectedAssets.clear();
       _selectionMode = false;
     });
   }
 
-  List<AssetEntity> _getSelectedAssets() {
+  Future<List<AssetEntity>> _resolveSelectedAssets() async {
     if (_selectedAssetIds.isEmpty) {
       return const [];
     }
 
-    final byId = <String, AssetEntity>{};
-    for (final section in _sections) {
-      for (final asset in section.assets) {
-        byId[asset.id] = asset;
+    final assets = <AssetEntity>[];
+    for (final id in _selectedAssetIds) {
+      final cached = _selectedAssets[id];
+      if (cached != null) {
+        assets.add(cached);
+        continue;
+      }
+      final inSections = _findAssetInSections(id);
+      if (inSections != null) {
+        _selectedAssets[id] = inSections;
+        assets.add(inSections);
+        continue;
+      }
+      final fetched = await AssetEntity.fromId(id);
+      if (fetched != null) {
+        _selectedAssets[id] = fetched;
+        assets.add(fetched);
       }
     }
-    return _selectedAssetIds
-        .map((id) => byId[id])
-        .whereType<AssetEntity>()
-        .toList();
+    return assets;
+  }
+
+  AssetEntity? _findAssetInSections(String id) {
+    for (final section in _sections) {
+      for (final asset in section.assets) {
+        if (asset.id == id) {
+          return asset;
+        }
+      }
+    }
+    return null;
   }
 
   Future<void> _uploadAsset(AssetEntity asset) async {
@@ -347,7 +466,7 @@ class _GalleryPageState extends State<GalleryPage> {
       return;
     }
 
-    final assets = _getSelectedAssets();
+    final assets = await _resolveSelectedAssets();
     if (assets.isEmpty) {
       _clearSelection();
       return;
@@ -370,6 +489,7 @@ class _GalleryPageState extends State<GalleryPage> {
 
     setState(() {
       _selectedAssetIds.clear();
+      _selectedAssets.clear();
       _selectionMode = false;
     });
   }
@@ -406,9 +526,327 @@ class _GalleryPageState extends State<GalleryPage> {
     return parts.isEmpty ? 'No photos queued' : parts.join(', ');
   }
 
+  Future<void> _selectAssetsByPreset(_BulkSelectPreset preset) async {
+    if (_isProcessingSelectionAction) {
+      return;
+    }
+
+    setState(() {
+      _isProcessingSelectionAction = true;
+    });
+
+    final messenger = ScaffoldMessenger.of(context);
+    final range = preset.computeRange(DateTime.now());
+
+    try {
+      final assets = await _loadAssetsInRange(range.start, range.end);
+
+      if (!mounted) {
+        return;
+      }
+
+      if (assets.isEmpty) {
+        messenger.hideCurrentSnackBar();
+        messenger.showSnackBar(
+          SnackBar(content: Text('No photos found for ${preset.label.toLowerCase()}')),
+        );
+        return;
+      }
+
+      int newlyAdded = 0;
+      setState(() {
+        for (final asset in assets) {
+          final id = asset.id;
+          final wasNew = _selectedAssetIds.add(id);
+          if (wasNew) {
+            newlyAdded += 1;
+          }
+          _selectedAssets[id] = asset;
+        }
+        if (_selectedAssetIds.isNotEmpty) {
+          _selectionMode = true;
+        }
+      });
+
+      messenger.hideCurrentSnackBar();
+      final countLabel = newlyAdded == assets.length
+          ? '${assets.length}'
+          : '${assets.length} (+$newlyAdded new)';
+      messenger.showSnackBar(
+        SnackBar(content: Text('Selected $countLabel from ${preset.label.toLowerCase()}')),
+      );
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+      messenger.hideCurrentSnackBar();
+      messenger.showSnackBar(
+        SnackBar(content: Text('Failed to select ${preset.label.toLowerCase()}')),
+      );
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isProcessingSelectionAction = false;
+        });
+      }
+    }
+  }
+
+  Future<List<AssetEntity>> _loadAssetsInRange(
+    DateTime start,
+    DateTime end,
+  ) async {
+    final filter = FilterOptionGroup(
+      createTimeCond: DateTimeCond(
+        min: start,
+        max: end,
+      ),
+      orders: const [
+        OrderOption(type: OrderOptionType.createDate, asc: false),
+      ],
+    );
+
+    final paths = await PhotoManager.getAssetPathList(
+      type: RequestType.image,
+      hasAll: true,
+      filterOption: filter,
+    );
+
+    if (paths.isEmpty) {
+      return const [];
+    }
+
+    final path = paths.first;
+    final total = await path.assetCountAsync;
+    if (total == 0) {
+      return const [];
+    }
+
+    const int pageSize = 120;
+    final assets = <AssetEntity>[];
+    for (int offset = 0; offset < total; offset += pageSize) {
+      final page = await path.getAssetListPaged(
+        page: offset ~/ pageSize,
+        size: pageSize,
+      );
+      assets.addAll(page);
+    }
+    return assets;
+  }
+
+  Future<void> _removeSelectedFromSync() async {
+    if (_selectedAssetIds.isEmpty || _isProcessingSelectionAction) {
+      return;
+    }
+
+    setState(() {
+      _isProcessingSelectionAction = true;
+    });
+
+    final messenger = ScaffoldMessenger.of(context);
+
+    try {
+      final entries = <MapEntry<String, String>>[];
+      for (final id in _selectedAssetIds) {
+        final hash = await _metadataStore.getContentHash(id);
+        if (hash != null && hash.isNotEmpty) {
+          entries.add(MapEntry(id, hash));
+        }
+      }
+
+      if (entries.isEmpty) {
+        messenger.hideCurrentSnackBar();
+        messenger.showSnackBar(
+          const SnackBar(content: Text('No synced photos in selection')),
+        );
+        return;
+      }
+
+      for (final entry in entries) {
+        await globalAuthService.unsyncFile(contentHash: entry.value);
+        await _metadataStore.remove(entry.key);
+      }
+
+      if (!mounted) {
+        return;
+      }
+
+      messenger.hideCurrentSnackBar();
+      final count = entries.length;
+      final label = count == 1 ? 'photo' : 'photos';
+      messenger.showSnackBar(
+        SnackBar(content: Text('Removed $count $label from sync')),
+      );
+
+      setState(() {
+        for (final entry in entries) {
+          _selectedAssetIds.remove(entry.key);
+          _selectedAssets.remove(entry.key);
+        }
+        if (_selectedAssetIds.isEmpty) {
+          _selectionMode = false;
+        }
+      });
+    } on ApiException catch (error) {
+      if (!mounted) {
+        return;
+      }
+      messenger.hideCurrentSnackBar();
+      messenger.showSnackBar(
+        SnackBar(content: Text(error.message ?? 'Failed to unsync photos')),
+      );
+    } catch (_) {
+      if (!mounted) {
+        return;
+      }
+      messenger.hideCurrentSnackBar();
+      messenger.showSnackBar(
+        const SnackBar(content: Text('Failed to unsync photos')),
+      );
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isProcessingSelectionAction = false;
+        });
+      }
+    }
+  }
+
+  Future<void> _retryFailedUploads() async {
+    if (_isProcessingSelectionAction) {
+      return;
+    }
+
+    final targetIds = _selectedAssetIds
+        .where((id) => _failedUploadAssetIds.contains(id))
+        .toSet();
+
+    if (targetIds.isEmpty) {
+      final messenger = ScaffoldMessenger.of(context);
+      messenger.hideCurrentSnackBar();
+      messenger.showSnackBar(
+        const SnackBar(content: Text('No failed uploads selected')),
+      );
+      return;
+    }
+
+    setState(() {
+      _isProcessingSelectionAction = true;
+    });
+
+    try {
+      final retried = await _uploadQueue.retryFailedJobs(
+        assetIds: targetIds,
+        onlyApiFailures: true,
+      );
+
+      if (!mounted) {
+        return;
+      }
+
+      final messenger = ScaffoldMessenger.of(context);
+      messenger.hideCurrentSnackBar();
+
+      if (retried > 0) {
+        final label = retried == 1 ? 'upload' : 'uploads';
+        messenger.showSnackBar(
+          SnackBar(content: Text('Retrying $retried $label')),
+        );
+      } else {
+        messenger.showSnackBar(
+          const SnackBar(content: Text('No retryable uploads found')),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isProcessingSelectionAction = false;
+        });
+      }
+    }
+  }
+
+  Future<void> _showBulkSelectSheet() async {
+    if (!_selectionMode) {
+      setState(() {
+        _selectionMode = true;
+      });
+    }
+
+    final hasRetryTargets =
+        _selectedAssetIds.any(_failedUploadAssetIds.contains);
+
+    final action = await showModalBottomSheet<_SelectionAction>(
+      context: context,
+      showDragHandle: true,
+      builder: (context) {
+        final theme = Theme.of(context);
+        return SafeArea(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Padding(
+                padding: const EdgeInsets.fromLTRB(24, 16, 24, 8),
+                child: Text(
+                  'Bulk actions',
+                  style: theme.textTheme.titleLarge?.copyWith(
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ),
+              ..._bulkPresets.map(
+                (preset) => ListTile(
+                  leading: const Icon(Icons.event_available),
+                  title: Text(preset.label),
+                  subtitle: Text(preset.description),
+                  enabled: !_isProcessingSelectionAction,
+                  onTap: () => Navigator.of(context).pop(
+                    _SelectionActionSelectPreset(preset),
+                  ),
+                ),
+              ),
+              const Divider(),
+              ListTile(
+                leading: const Icon(Icons.cloud_off),
+                title: const Text('Remove from sync'),
+                enabled: !_isProcessingSelectionAction,
+                onTap: () => Navigator.of(context).pop(
+                  const _SelectionActionRemoveFromSync(),
+                ),
+              ),
+              ListTile(
+                leading: const Icon(Icons.refresh),
+                title: const Text('Retry failed uploads'),
+                enabled: !_isProcessingSelectionAction && hasRetryTargets,
+                onTap: () => Navigator.of(context).pop(
+                  const _SelectionActionRetryFailed(),
+                ),
+              ),
+              const SizedBox(height: 16),
+            ],
+          ),
+        );
+      },
+    );
+
+    if (!mounted || action == null) {
+      return;
+    }
+
+    if (action is _SelectionActionSelectPreset) {
+      await _selectAssetsByPreset(action.preset);
+    } else if (action is _SelectionActionRemoveFromSync) {
+      await _removeSelectedFromSync();
+    } else if (action is _SelectionActionRetryFailed) {
+      await _retryFailedUploads();
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final selectionActions = _buildSelectionActions(theme);
 
     return PopScope(
       canPop: !_selectionMode,
@@ -426,7 +864,7 @@ class _GalleryPageState extends State<GalleryPage> {
           decoration: BoxDecoration(
             gradient: LinearGradient(
               colors: [
-                theme.colorScheme.primary.withValues(alpha: 0.06),
+                theme.colorScheme.primary.withOpacity(0.06),
                 theme.colorScheme.surfaceContainerHigh,
                 theme.colorScheme.surface,
               ],
@@ -477,22 +915,34 @@ class _GalleryPageState extends State<GalleryPage> {
                                   children: [
                                     const Spacer(),
                                     if (_hasActiveUploads) ...[
-                                      const _GalleryGlassProgressIndicator(),
+                                    const _GalleryGlassProgressIndicator(),
                                       const SizedBox(width: 12),
                                     ],
                                     if (_selectionMode) ...[
                                       _GalleryGlassIconButton(
+                                        icon: Icons.event,
+                                        tooltip: 'Bulk select by date',
+                                        onPressed: _isProcessingSelectionAction
+                                            ? null
+                                            : () => _showBulkSelectSheet(),
+                                      ),
+                                      const SizedBox(width: 12),
+                                      _GalleryGlassIconButton(
                                         icon: Icons.cloud_upload,
                                         tooltip: 'Upload selected',
-                                        onPressed: _selectedAssetIds.isEmpty
-                                            ? null
-                                            : () => _uploadSelectedAssets(),
+                                        onPressed:
+                                            _selectedAssetIds.isEmpty ||
+                                                    _isProcessingSelectionAction
+                                                ? null
+                                                : () => _uploadSelectedAssets(),
                                       ),
                                       const SizedBox(width: 12),
                                       _GalleryGlassIconButton(
                                         icon: Icons.close,
                                         tooltip: 'Clear selection',
-                                        onPressed: _clearSelection,
+                                        onPressed: _isProcessingSelectionAction
+                                            ? null
+                                            : _clearSelection,
                                       ),
                                     ] else
                                       _GalleryGlassIconButton(
@@ -511,6 +961,7 @@ class _GalleryPageState extends State<GalleryPage> {
                       },
                     ),
                   ),
+                  if (selectionActions != null) selectionActions,
                   SliverPadding(
                     padding: const EdgeInsets.symmetric(
                       horizontal: 20,
@@ -570,8 +1021,144 @@ class _GalleryPageState extends State<GalleryPage> {
           : const <String>{},
       onAssetTap: _handleAssetTap,
       onAssetLongPress: _handleAssetLongPress,
+      onAssetLongPressStart: _handleAssetLongPressStart,
+      onAssetLongPressMoveUpdate: _handleAssetLongPressMoveUpdate,
+      onAssetLongPressEnd: _handleAssetLongPressEnd,
       onAssetUpload: _uploadAsset,
     );
+  }
+
+  SliverToBoxAdapter? _buildSelectionActions(ThemeData theme) {
+    if (!_selectionMode) {
+      return null;
+    }
+
+    final canRetry =
+        _selectedAssetIds.any((id) => _failedUploadAssetIds.contains(id));
+
+    return SliverToBoxAdapter(
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(20, 16, 20, 8),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Quick select',
+              style: theme.textTheme.titleMedium?.copyWith(
+                fontWeight: FontWeight.w700,
+                letterSpacing: 0.1,
+              ),
+            ),
+            const SizedBox(height: 8),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: _bulkPresets
+                  .map(
+                    (preset) => Tooltip(
+                      message: preset.description,
+                      child: ActionChip(
+                        label: Text(preset.label),
+                        onPressed: _isProcessingSelectionAction
+                            ? null
+                            : () => _selectAssetsByPreset(preset),
+                      ),
+                    ),
+                  )
+                  .toList(),
+            ),
+            const SizedBox(height: 18),
+            Wrap(
+              spacing: 12,
+              runSpacing: 12,
+              children: [
+                FilledButton.tonalIcon(
+                  onPressed: _isProcessingSelectionAction
+                      ? null
+                      : () => _removeSelectedFromSync(),
+                  icon: const Icon(Icons.cloud_off),
+                  label: const Text('Remove from sync'),
+                ),
+                FilledButton.tonalIcon(
+                  onPressed: !_isProcessingSelectionAction && canRetry
+                      ? () => _retryFailedUploads()
+                      : null,
+                  icon: const Icon(Icons.refresh),
+                  label: const Text('Retry failed'),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  static _DateRange _computeTodayRange(DateTime now) {
+    final localNow = now.toLocal();
+    return _DateRange(
+      _startOfDay(localNow),
+      _endOfDay(localNow),
+    );
+  }
+
+  static _DateRange _computeYesterdayRange(DateTime now) {
+    final localNow = now.toLocal();
+    final yesterday = localNow.subtract(const Duration(days: 1));
+    return _DateRange(
+      _startOfDay(yesterday),
+      _endOfDay(yesterday),
+    );
+  }
+
+  static _DateRange _computeLast7DaysRange(DateTime now) {
+    final localNow = now.toLocal();
+    final start = localNow.subtract(const Duration(days: 6));
+    return _DateRange(
+      _startOfDay(start),
+      _endOfDay(localNow),
+    );
+  }
+
+  static _DateRange _computeThisMonthRange(DateTime now) {
+    final localNow = now.toLocal();
+    final start = DateTime(localNow.year, localNow.month, 1);
+    return _DateRange(
+      _startOfDay(start),
+      _endOfDay(_endOfMonth(localNow)),
+    );
+  }
+
+  static _DateRange _computeLastMonthRange(DateTime now) {
+    final localNow = now.toLocal();
+    final firstDayThisMonth = DateTime(localNow.year, localNow.month, 1);
+    final lastMonthEnd = firstDayThisMonth.subtract(const Duration(days: 1));
+    final start = DateTime(lastMonthEnd.year, lastMonthEnd.month, 1);
+    return _DateRange(
+      _startOfDay(start),
+      _endOfDay(_endOfMonth(lastMonthEnd)),
+    );
+  }
+
+  static DateTime _startOfDay(DateTime date) =>
+      DateTime(date.year, date.month, date.day);
+
+  static DateTime _endOfDay(DateTime date) => DateTime(
+        date.year,
+        date.month,
+        date.day,
+        23,
+        59,
+        59,
+        999,
+      );
+
+  static DateTime _endOfMonth(DateTime date) {
+    final firstNextMonth = date.month == 12
+        ? DateTime(date.year + 1, 1, 1)
+        : DateTime(date.year, date.month + 1, 1);
+    final lastDay = firstNextMonth.subtract(const Duration(days: 1));
+    return DateTime(lastDay.year, lastDay.month, lastDay.day);
   }
 
   List<GallerySection> _groupAssetsByDay(List<AssetEntity> assets) {
@@ -674,9 +1261,9 @@ class _GalleryGlassHeader extends StatelessWidget {
                 begin: Alignment.topCenter,
                 end: Alignment.bottomCenter,
                 colors: [
-                  Colors.black.withValues(alpha: 0.55),
-                  Colors.black.withValues(alpha: 0.20),
-                  Colors.black.withValues(alpha: 0.05),
+                  Colors.black.withOpacity(0.55),
+                  Colors.black.withOpacity(0.20),
+                  Colors.black.withOpacity(0.05),
                 ],
               ),
             ),
@@ -696,9 +1283,9 @@ class _GalleryGlassHeader extends StatelessWidget {
                   vertical: 20,
                 ),
                 decoration: BoxDecoration(
-                  color: Colors.white.withValues(alpha: 0.12),
+                  color: Colors.white.withOpacity(0.12),
                   border: Border.all(
-                    color: Colors.white.withValues(alpha: 0.18),
+                    color: Colors.white.withOpacity(0.18),
                   ),
                   borderRadius: BorderRadius.circular(28),
                   boxShadow: const [
@@ -725,7 +1312,7 @@ class _GalleryGlassHeader extends StatelessWidget {
                       Text(
                         subtitle,
                         style: theme.textTheme.bodyMedium?.copyWith(
-                          color: Colors.white.withValues(alpha: 0.85),
+                          color: Colors.white.withOpacity(0.85),
                         ),
                       ),
                     ],
@@ -789,7 +1376,7 @@ class _GalleryGlassIconButton extends StatelessWidget {
       child: BackdropFilter(
         filter: ImageFilter.blur(sigmaX: 12, sigmaY: 12),
         child: Material(
-          color: Colors.white.withValues(alpha: enabled ? 0.18 : 0.08),
+          color: Colors.white.withOpacity(enabled ? 0.18 : 0.08),
           child: InkWell(
             onTap: onPressed,
             child: SizedBox(
@@ -797,7 +1384,7 @@ class _GalleryGlassIconButton extends StatelessWidget {
               height: 40,
               child: Icon(
                 icon,
-                color: Colors.white.withValues(alpha: enabled ? 1 : 0.4),
+                color: Colors.white.withOpacity(enabled ? 1 : 0.4),
               ),
             ),
           ),
@@ -825,7 +1412,7 @@ class _GalleryGlassProgressIndicator extends StatelessWidget {
           height: 40,
           alignment: Alignment.center,
           decoration: BoxDecoration(
-            color: Colors.white.withValues(alpha: 0.18),
+            color: Colors.white.withOpacity(0.18),
             shape: BoxShape.circle,
           ),
           child: const SizedBox(
@@ -840,4 +1427,41 @@ class _GalleryGlassProgressIndicator extends StatelessWidget {
       ),
     );
   }
+}
+
+class _DateRange {
+  const _DateRange(this.start, this.end);
+
+  final DateTime start;
+  final DateTime end;
+}
+
+class _BulkSelectPreset {
+  const _BulkSelectPreset({
+    required this.label,
+    required this.description,
+    required this.computeRange,
+  });
+
+  final String label;
+  final String description;
+  final _DateRange Function(DateTime now) computeRange;
+}
+
+abstract class _SelectionAction {
+  const _SelectionAction();
+}
+
+class _SelectionActionSelectPreset extends _SelectionAction {
+  const _SelectionActionSelectPreset(this.preset);
+
+  final _BulkSelectPreset preset;
+}
+
+class _SelectionActionRemoveFromSync extends _SelectionAction {
+  const _SelectionActionRemoveFromSync();
+}
+
+class _SelectionActionRetryFailed extends _SelectionAction {
+  const _SelectionActionRetryFailed();
 }

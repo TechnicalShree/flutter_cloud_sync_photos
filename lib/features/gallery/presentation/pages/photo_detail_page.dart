@@ -251,9 +251,9 @@ class _PhotoDetailPageState extends State<PhotoDetailPage>
                     begin: Alignment.topCenter,
                     end: Alignment.bottomCenter,
                     colors: [
-                      Colors.black.withValues(alpha: 0.35),
+                      Colors.black.withOpacity(0.35),
                       Colors.transparent,
-                      Colors.black.withValues(alpha: 0.45),
+                      Colors.black.withOpacity(0.45),
                     ],
                     stops: const [0.0, 0.3, 1.0],
                   ),
@@ -282,11 +282,11 @@ class _PhotoDetailPageState extends State<PhotoDetailPage>
                 padding: const EdgeInsets.only(bottom: 32),
                 child: DecoratedBox(
                   decoration: BoxDecoration(
-                    color: Colors.black.withValues(alpha: 0.55),
+                    color: Colors.black.withOpacity(0.55),
                     borderRadius: BorderRadius.circular(24),
                     boxShadow: [
                       BoxShadow(
-                        color: Colors.black.withValues(alpha: 0.3),
+                        color: Colors.black.withOpacity(0.3),
                         blurRadius: 16,
                         offset: const Offset(0, 6),
                       ),
@@ -367,7 +367,7 @@ class _PhotoDetailPageState extends State<PhotoDetailPage>
                     BoxShadow(
                       blurRadius: 24,
                       offset: const Offset(0, -10),
-                      color: Colors.black.withValues(alpha: 0.35),
+                      color: Colors.black.withOpacity(0.35),
                     ),
                   ],
                 ),
@@ -390,7 +390,7 @@ class _PhotoDetailPageState extends State<PhotoDetailPage>
                               height: 4,
                               decoration: BoxDecoration(
                                 color: theme.colorScheme.onSurfaceVariant
-                                    .withValues(alpha: 0.25),
+                                    .withOpacity(0.25),
                                 borderRadius: BorderRadius.circular(12),
                               ),
                             ),

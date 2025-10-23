@@ -1,3 +1,4 @@
+import 'package:dynamic_color/dynamic_color.dart';
 import 'package:flutter/material.dart';
 
 import 'core/constants/app_strings.dart';
@@ -13,18 +14,25 @@ class CloudSyncPhotosApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return MaterialApp(
-      title: AppStrings.appTitle,
-      theme: AppTheme.light,
-      darkTheme: AppTheme.dark,
-      themeMode: ThemeMode.system,
-      debugShowCheckedModeBanner: false,
-      home: const AuthGate(),
-      routes: {
-        LoginPage.routeName: (_) => const LoginPage(),
-        HomePage.routeName: (_) => const HomePage(),
-        AlbumPage.routeName: (_) => const AlbumPage(),
-        SettingsPage.routeName: (_) => const SettingsPage(),
+    return DynamicColorBuilder(
+      builder: (lightDynamic, darkDynamic) {
+        final lightTheme = AppTheme.light(lightDynamic);
+        final darkTheme = AppTheme.dark(darkDynamic);
+
+        return MaterialApp(
+          title: AppStrings.appTitle,
+          theme: lightTheme,
+          darkTheme: darkTheme,
+          themeMode: ThemeMode.system,
+          debugShowCheckedModeBanner: false,
+          home: const AuthGate(),
+          routes: {
+            LoginPage.routeName: (_) => const LoginPage(),
+            HomePage.routeName: (_) => const HomePage(),
+            AlbumPage.routeName: (_) => const AlbumPage(),
+            SettingsPage.routeName: (_) => const SettingsPage(),
+          },
+        );
       },
     );
   }

@@ -112,15 +112,15 @@ class _SplashScreenState extends State<_SplashScreen>
                           boxShadow: [
                             BoxShadow(
                               color: theme.colorScheme.onPrimary
-                                  .withValues(alpha: 0.25),
+                                  .withOpacity(0.25),
                               blurRadius: 28,
                               spreadRadius: 1,
                             ),
                           ],
                           gradient: RadialGradient(
                             colors: [
-                              Colors.white.withValues(alpha: 0.25),
-                              Colors.white.withValues(alpha: 0.05),
+                              Colors.white.withOpacity(0.25),
+                              Colors.white.withOpacity(0.05),
                             ],
                           ),
                         ),
@@ -130,7 +130,7 @@ class _SplashScreenState extends State<_SplashScreen>
                             Icons.cloud_sync,
                             size: 68,
                             color: theme.colorScheme.onPrimary
-                                .withValues(alpha: 0.9),
+                                .withOpacity(0.9),
                           ),
                         ),
                       ),
@@ -144,7 +144,7 @@ class _SplashScreenState extends State<_SplashScreen>
                         child: CircularProgressIndicator(
                           strokeWidth: 3,
                           valueColor: AlwaysStoppedAnimation<Color>(
-                            Colors.white.withValues(alpha: 0.9),
+                            Colors.white.withOpacity(0.9),
                           ),
                         ),
                       ),
@@ -165,7 +165,7 @@ class _SplashScreenState extends State<_SplashScreen>
                         textAlign: TextAlign.center,
                         style: theme.textTheme.titleMedium?.copyWith(
                           color:
-                              theme.colorScheme.onPrimary.withValues(alpha: 0.92),
+                              theme.colorScheme.onPrimary.withOpacity(0.92),
                           fontWeight: FontWeight.w600,
                           letterSpacing: 0.2,
                         ),
@@ -181,7 +181,7 @@ class _SplashScreenState extends State<_SplashScreen>
                           message,
                           style: theme.textTheme.bodyMedium?.copyWith(
                             color: theme.colorScheme.onPrimary
-                                .withValues(alpha: 0.7),
+                                .withOpacity(0.7),
                           ),
                         );
                       },
@@ -246,19 +246,19 @@ class _AnimatedGradientBackground extends StatelessWidget {
                 left: _lerp(32, 96, glowShift),
                 top: _lerp(120, 200, accentShift),
                 size: _lerp(140, 190, accentShift),
-                color: secondary.withValues(alpha: 0.18),
+                color: secondary.withOpacity(0.18),
               ),
               _GlowingOrb(
                 right: _lerp(48, 16, accentShift),
                 bottom: _lerp(60, 140, glowShift),
                 size: _lerp(120, 160, glowShift),
-                color: tertiary.withValues(alpha: 0.15),
+                color: tertiary.withOpacity(0.15),
               ),
               _GlowingOrb(
                 left: _lerp(140, 60, accentShift),
                 bottom: _lerp(240, 180, glowShift),
                 size: _lerp(80, 110, accentShift),
-                color: Colors.white.withValues(alpha: 0.12),
+                color: Colors.white.withOpacity(0.12),
               ),
             ],
           ),
@@ -300,7 +300,7 @@ class _GlowingOrb extends StatelessWidget {
           color: color,
           boxShadow: [
             BoxShadow(
-              color: color.withValues(alpha: 0.55),
+              color: color.withOpacity(0.55),
               blurRadius: size * 0.45,
               spreadRadius: size * 0.12,
             ),
