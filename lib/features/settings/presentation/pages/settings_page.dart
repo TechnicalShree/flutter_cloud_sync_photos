@@ -1,3 +1,5 @@
+import 'dart:async';
+import 'dart:convert';
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
@@ -36,6 +38,11 @@ class _SettingsPageState extends State<SettingsPage>
   List<UploadJob> _uploadJobs = const [];
   VoidCallback? _uploadQueueListener;
   bool _showAllUploads = false;
+  bool _loadingSyncedPhotos = true;
+  bool _showAllSyncedPhotos = false;
+  int _selectedUploadTab = 0;
+  int _completedJobCount = 0;
+  List<_SyncedPhotoEntry> _syncedPhotos = const [];
   final List<bool> _sectionVisible = List<bool>.filled(4, false);
 
   @override
@@ -46,6 +53,8 @@ class _SettingsPageState extends State<SettingsPage>
       duration: const Duration(seconds: 16),
     )..repeat(reverse: true);
     _uploadJobs = _uploadQueue.jobs;
+    _completedJobCount =
+        _uploadJobs.where((job) => job.status == UploadJobStatus.completed).length;
     _uploadQueueListener = _handleUploadQueueUpdate;
     _uploadQueue.addListener(_uploadQueueListener!);
     _loadInitialData();
@@ -67,7 +76,11 @@ class _SettingsPageState extends State<SettingsPage>
   }
 
   Future<void> _loadInitialData() async {
-    await Future.wait([_loadUserDetails(), _loadUploadPreferences()]);
+    await Future.wait([
+      _loadUserDetails(),
+      _loadUploadPreferences(),
+      _loadSyncedPhotos(showSpinner: true, resetExpanded: true),
+    ]);
   }
 
   Future<void> _loadUserDetails() async {
@@ -115,12 +128,22 @@ class _SettingsPageState extends State<SettingsPage>
     if (!mounted) {
       return;
     }
+    var shouldRefreshSynced = false;
     setState(() {
       _uploadJobs = _uploadQueue.jobs;
       if (_uploadJobs.length <= 10 && _showAllUploads) {
         _showAllUploads = false;
       }
+      final completedCount =
+          _uploadJobs.where((job) => job.status == UploadJobStatus.completed).length;
+      if (completedCount != _completedJobCount) {
+        _completedJobCount = completedCount;
+        shouldRefreshSynced = true;
+      }
     });
+    if (shouldRefreshSynced) {
+      unawaited(_loadSyncedPhotos());
+    }
   }
 
   Future<void> _handlePrivateToggle(bool value) async {
@@ -139,6 +162,37 @@ class _SettingsPageState extends State<SettingsPage>
 
   Future<void> _handleLogout() async {
     if (_processingLogout) {
+      return;
+    }
+
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) {
+        final theme = Theme.of(context);
+        return AlertDialog(
+          title: const Text('Sign out?'),
+          content: const Text(
+            'You will be signed out from this device and will need to log in again to continue.',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(false),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              style: FilledButton.styleFrom(
+                backgroundColor: theme.colorScheme.error,
+                foregroundColor: theme.colorScheme.onError,
+              ),
+              onPressed: () => Navigator.of(context).pop(true),
+              child: const Text('Sign out'),
+            ),
+          ],
+        );
+      },
+    );
+
+    if (confirmed != true || !mounted) {
       return;
     }
 
@@ -212,6 +266,7 @@ class _SettingsPageState extends State<SettingsPage>
       messenger.showSnackBar(
         const SnackBar(content: Text('Upload metadata cleared')),
       );
+      await _loadSyncedPhotos(showSpinner: true, resetExpanded: true);
     } finally {
       if (mounted) {
         setState(() {
@@ -334,6 +389,7 @@ class _SettingsPageState extends State<SettingsPage>
     }
 
     final details = _userDetails;
+    final prettyDetails = _prettyPrintUserDetails(details);
     return _SectionCard(
       title: 'Account',
       child: Column(
@@ -370,6 +426,38 @@ class _SettingsPageState extends State<SettingsPage>
             label: 'Gender',
             value: _safeDisplay(details?.gender) ?? 'Not specified',
           ),
+          if (prettyDetails != null) ...[
+            const SizedBox(height: 20),
+            DecoratedBox(
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(12),
+                color: theme.colorScheme.surfaceVariant.withOpacity(0.35),
+              ),
+              child: Padding(
+                padding: const EdgeInsets.all(12),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'API response',
+                      style: theme.textTheme.labelMedium?.copyWith(
+                        color: theme.colorScheme.onSurfaceVariant,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    SelectableText(
+                      prettyDetails,
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        fontFamily: 'monospace',
+                        color: theme.colorScheme.onSurfaceVariant,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ],
         ],
       ),
     );
@@ -512,6 +600,37 @@ class _SettingsPageState extends State<SettingsPage>
   }
 
   Widget _buildUploadProgressSection(ThemeData theme) {
+    return _SectionCard(
+      title: 'Background Uploads',
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          _UploadTabSelector(
+            selectedIndex: _selectedUploadTab,
+            onSelected: (index) {
+              if (_selectedUploadTab == index) {
+                return;
+              }
+              setState(() {
+                _selectedUploadTab = index;
+              });
+            },
+          ),
+          const SizedBox(height: 16),
+          AnimatedSwitcher(
+            duration: const Duration(milliseconds: 260),
+            switchInCurve: Curves.easeOutCubic,
+            switchOutCurve: Curves.easeInCubic,
+            child: _selectedUploadTab == 0
+                ? _buildUploadQueueTab(theme)
+                : _buildSyncedPhotosTab(theme),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildUploadQueueTab(ThemeData theme) {
     const maxVisible = 10;
     final jobs = _uploadJobs;
     final reversedJobs = jobs.reversed.toList();
@@ -524,8 +643,8 @@ class _SettingsPageState extends State<SettingsPage>
     final hasFinished = jobs.any((job) => job.isFinished);
     final preparing = _uploadQueue.hasActiveUploads && !hasJobs;
 
-    return _SectionCard(
-      title: 'Background Uploads',
+    return KeyedSubtree(
+      key: const ValueKey('upload-queue-tab'),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -608,6 +727,101 @@ class _SettingsPageState extends State<SettingsPage>
     );
   }
 
+  Widget _buildSyncedPhotosTab(ThemeData theme) {
+    if (_loadingSyncedPhotos) {
+      return const KeyedSubtree(
+        key: ValueKey('synced-loading'),
+        child: Padding(
+          padding: EdgeInsets.symmetric(vertical: 12),
+          child: Center(child: _LoadingIndicator()),
+        ),
+      );
+    }
+
+    final entries = _syncedPhotos;
+    const maxVisible = 20;
+    final hasEntries = entries.isNotEmpty;
+    final displayAll = _showAllSyncedPhotos || entries.length <= maxVisible;
+    final displayed = displayAll ? entries : entries.take(maxVisible).toList();
+    final hasMore = entries.length > maxVisible && !_showAllSyncedPhotos;
+    final showLess = entries.length > maxVisible && _showAllSyncedPhotos;
+
+    return KeyedSubtree(
+      key: const ValueKey('synced-tab'),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'Synced photos recorded: ${entries.length}',
+            style: theme.textTheme.bodyMedium?.copyWith(
+              color: theme.colorScheme.onSurfaceVariant,
+            ),
+          ),
+          const SizedBox(height: 12),
+          if (!hasEntries)
+            Row(
+              children: [
+                Icon(
+                  Icons.photo_library_outlined,
+                  color: theme.colorScheme.onSurfaceVariant,
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Text(
+                    'No synced photos recorded yet.',
+                    style: theme.textTheme.bodyMedium?.copyWith(
+                      color: theme.colorScheme.onSurfaceVariant,
+                    ),
+                  ),
+                ),
+              ],
+            )
+          else ...[
+            ListView.separated(
+              shrinkWrap: true,
+              physics: const NeverScrollableScrollPhysics(),
+              itemCount: displayed.length,
+              separatorBuilder: (_, __) => const SizedBox(height: 8),
+              itemBuilder: (context, index) {
+                final entry = displayed[index];
+                return _SyncedPhotoRow(entry: entry);
+              },
+            ),
+            if (hasMore || showLess)
+              Padding(
+                padding: const EdgeInsets.only(top: 12),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    if (hasMore)
+                      TextButton.icon(
+                        onPressed: () {
+                          setState(() {
+                            _showAllSyncedPhotos = true;
+                          });
+                        },
+                        icon: const Icon(Icons.expand_more),
+                        label: Text('Show all (${entries.length})'),
+                      ),
+                    if (showLess)
+                      TextButton.icon(
+                        onPressed: () {
+                          setState(() {
+                            _showAllSyncedPhotos = false;
+                          });
+                        },
+                        icon: const Icon(Icons.expand_less),
+                        label: const Text('Show less'),
+                      ),
+                  ],
+                ),
+              ),
+          ],
+        ],
+      ),
+    );
+  }
+
   String _resolveUserSegment(UserDetails? details) {
     final explicitName = details?.name?.trim();
     if (explicitName != null && explicitName.isNotEmpty) {
@@ -637,6 +851,66 @@ class _SettingsPageState extends State<SettingsPage>
     }
     final trimmed = value.trim();
     return trimmed.isEmpty ? null : trimmed;
+  }
+
+  String? _prettyPrintUserDetails(UserDetails? details) {
+    if (details == null) {
+      return null;
+    }
+    final rawJson = details.toJson()
+      ..removeWhere((key, value) {
+        if (value == null) {
+          return true;
+        }
+        if (value is String) {
+          return value.trim().isEmpty;
+        }
+        return false;
+      });
+    if (rawJson.isEmpty) {
+      return null;
+    }
+    const encoder = JsonEncoder.withIndent('  ');
+    return encoder.convert(rawJson);
+  }
+
+  Future<void> _loadSyncedPhotos({bool showSpinner = false, bool resetExpanded = false}) async {
+    if (!mounted) {
+      return;
+    }
+    if (showSpinner) {
+      setState(() {
+        _loadingSyncedPhotos = true;
+        if (resetExpanded) {
+          _showAllSyncedPhotos = false;
+        }
+      });
+    } else if (resetExpanded) {
+      setState(() {
+        _showAllSyncedPhotos = false;
+      });
+    }
+
+    final records = await _actions.loadSyncedPhotos();
+    if (!mounted) {
+      return;
+    }
+
+    final entries = records.entries
+        .map(
+          (entry) => _SyncedPhotoEntry(
+            assetId: entry.key,
+            contentHash: entry.value,
+          ),
+        )
+        .where((entry) => entry.assetId.isNotEmpty && entry.contentHash.isNotEmpty)
+        .toList()
+      ..sort((a, b) => a.assetId.compareTo(b.assetId));
+
+    setState(() {
+      _syncedPhotos = entries;
+      _loadingSyncedPhotos = false;
+    });
   }
 
   Widget _buildLogoutSection(ThemeData theme) {
@@ -677,6 +951,153 @@ class _SettingsPageState extends State<SettingsPage>
               key: ValueKey(_processingLogout),
             ),
           ),
+        ),
+      ),
+    );
+  }
+}
+
+class _UploadTabSelector extends StatelessWidget {
+  const _UploadTabSelector({
+    super.key,
+    required this.selectedIndex,
+    required this.onSelected,
+  });
+
+  final int selectedIndex;
+  final ValueChanged<int> onSelected;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final labels = const ['In progress', 'Synced'];
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(12),
+        color: theme.colorScheme.surfaceVariant.withOpacity(0.3),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(4),
+        child: Row(
+          children: [
+            for (var i = 0; i < labels.length; i++)
+              Expanded(
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 2),
+                  child: _UploadTabButton(
+                    label: labels[i],
+                    isSelected: selectedIndex == i,
+                    onTap: () => onSelected(i),
+                  ),
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _UploadTabButton extends StatelessWidget {
+  const _UploadTabButton({
+    super.key,
+    required this.label,
+    required this.isSelected,
+    required this.onTap,
+  });
+
+  final String label;
+  final bool isSelected;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return InkWell(
+      onTap: isSelected ? null : onTap,
+      borderRadius: BorderRadius.circular(10),
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 200),
+        curve: Curves.easeOutCubic,
+        padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 8),
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(10),
+          color: isSelected
+              ? theme.colorScheme.primary.withOpacity(0.12)
+              : Colors.transparent,
+        ),
+        child: Center(
+          child: Text(
+            label,
+            style: theme.textTheme.labelLarge?.copyWith(
+              color: isSelected
+                  ? theme.colorScheme.primary
+                  : theme.colorScheme.onSurfaceVariant,
+              fontWeight: isSelected ? FontWeight.w600 : FontWeight.w500,
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _SyncedPhotoEntry {
+  const _SyncedPhotoEntry({required this.assetId, required this.contentHash});
+
+  final String assetId;
+  final String contentHash;
+
+  String get shortHash {
+    if (contentHash.length <= 12) {
+      return contentHash;
+    }
+    return '${contentHash.substring(0, 12)}…';
+  }
+}
+
+class _SyncedPhotoRow extends StatelessWidget {
+  const _SyncedPhotoRow({super.key, required this.entry});
+
+  final _SyncedPhotoEntry entry;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(14),
+        color: theme.colorScheme.surfaceVariant.withOpacity(0.35),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Icon(
+              Icons.photo_outlined,
+              color: theme.colorScheme.primary,
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    entry.assetId,
+                    style: theme.textTheme.titleSmall,
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    'Content hash: ${entry.shortHash}',
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: theme.colorScheme.onSurfaceVariant,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
         ),
       ),
     );
