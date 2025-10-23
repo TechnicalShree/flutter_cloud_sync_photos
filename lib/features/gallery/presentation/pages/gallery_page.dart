@@ -1069,9 +1069,7 @@ class _GalleryPageState extends State<GalleryPage>
       selectionMode: _selectionMode,
       selectedAssetIds: _selectedAssetIds,
       uploadingAssetIds: _uploadingAssetIds,
-      hideSelectionIndicatorAssetIds: _selectionMode && _assets.isNotEmpty
-          ? {_assets.first.id}
-          : const <String>{},
+      hideSelectionIndicatorAssetIds: const <String>{},
       animationDuration: _microAnimationDuration,
       animationCurve: _microAnimationCurve,
       sectionStaggerDelay: _sectionStaggerDelay,

@@ -498,9 +498,7 @@ class _AlbumDetailPageState extends State<AlbumDetailPage> {
       selectionMode: _selectionMode,
       selectedAssetIds: _selectedAssetIds,
       uploadingAssetIds: _uploadingAssetIds,
-      hideSelectionIndicatorAssetIds: _selectionMode && _assets.isNotEmpty
-          ? {_assets.first.id}
-          : const <String>{},
+      hideSelectionIndicatorAssetIds: const <String>{},
       onAssetTap: _handleAssetTap,
       onAssetLongPress: _handleAssetLongPress,
       onAssetUpload: _uploadAsset,
