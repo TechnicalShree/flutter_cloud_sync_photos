@@ -21,13 +21,14 @@ class SettingsPage extends StatefulWidget {
 }
 
 class _SettingsPageState extends State<SettingsPage>
-    with SingleTickerProviderStateMixin {
+    with TickerProviderStateMixin {
   final AuthService _authService = globalAuthService;
   final UploadPreferencesStore _preferencesStore = uploadPreferencesStore;
   final SettingsActions _actions = settingsActions;
   final GalleryUploadQueue _uploadQueue = galleryUploadQueue;
 
   late final AnimationController _backgroundController;
+  late final TabController _uploadTabController;
   UserDetails? _userDetails;
   bool _loadingUser = true;
   bool _loadingPreferences = true;
@@ -52,6 +53,9 @@ class _SettingsPageState extends State<SettingsPage>
       vsync: this,
       duration: const Duration(seconds: 16),
     )..repeat(reverse: true);
+    _uploadTabController = TabController(length: 2, vsync: this)
+      ..addListener(_handleUploadTabChanged);
+    _selectedUploadTab = _uploadTabController.index;
     _uploadJobs = _uploadQueue.jobs;
     _completedJobCount =
         _uploadJobs.where((job) => job.status == UploadJobStatus.completed).length;
@@ -279,11 +283,25 @@ class _SettingsPageState extends State<SettingsPage>
   @override
   void dispose() {
     _backgroundController.dispose();
+    _uploadTabController.removeListener(_handleUploadTabChanged);
+    _uploadTabController.dispose();
     if (_uploadQueueListener != null) {
       _uploadQueue.removeListener(_uploadQueueListener!);
       _uploadQueueListener = null;
     }
     super.dispose();
+  }
+
+  void _handleUploadTabChanged() {
+    if (_uploadTabController.indexIsChanging) {
+      return;
+    }
+    final index = _uploadTabController.index;
+    if (index != _selectedUploadTab && mounted) {
+      setState(() {
+        _selectedUploadTab = index;
+      });
+    }
   }
 
   @override
@@ -605,18 +623,6 @@ class _SettingsPageState extends State<SettingsPage>
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          _UploadTabSelector(
-            selectedIndex: _selectedUploadTab,
-            onSelected: (index) {
-              if (_selectedUploadTab == index) {
-                return;
-              }
-              setState(() {
-                _selectedUploadTab = index;
-              });
-            },
-          ),
-          const SizedBox(height: 16),
           AnimatedSwitcher(
             duration: const Duration(milliseconds: 260),
             switchInCurve: Curves.easeOutCubic,
@@ -624,6 +630,11 @@ class _SettingsPageState extends State<SettingsPage>
             child: _selectedUploadTab == 0
                 ? _buildUploadQueueTab(theme)
                 : _buildSyncedPhotosTab(theme),
+          ),
+          const SizedBox(height: 16),
+          _UploadTabBar(
+            controller: _uploadTabController,
+            selectedIndex: _selectedUploadTab,
           ),
         ],
       ),
@@ -957,15 +968,15 @@ class _SettingsPageState extends State<SettingsPage>
   }
 }
 
-class _UploadTabSelector extends StatelessWidget {
-  const _UploadTabSelector({
+class _UploadTabBar extends StatelessWidget {
+  const _UploadTabBar({
     super.key,
+    required this.controller,
     required this.selectedIndex,
-    required this.onSelected,
   });
 
+  final TabController controller;
   final int selectedIndex;
-  final ValueChanged<int> onSelected;
 
   @override
   Widget build(BuildContext context) {
@@ -974,68 +985,38 @@ class _UploadTabSelector extends StatelessWidget {
     return DecoratedBox(
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(12),
-        color: theme.colorScheme.surfaceVariant.withOpacity(0.3),
+        color: theme.colorScheme.surfaceVariant.withOpacity(0.2),
       ),
-      child: Padding(
-        padding: const EdgeInsets.all(4),
-        child: Row(
-          children: [
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(12),
+        child: TabBar(
+          controller: controller,
+          indicator: BoxDecoration(
+            borderRadius: BorderRadius.circular(12),
+            color: theme.colorScheme.primary,
+          ),
+          indicatorSize: TabBarIndicatorSize.tab,
+          labelColor: theme.colorScheme.onPrimary,
+          unselectedLabelColor: theme.colorScheme.onSurfaceVariant,
+          labelStyle: theme.textTheme.labelLarge?.copyWith(
+            fontWeight: FontWeight.w600,
+          ),
+          unselectedLabelStyle: theme.textTheme.labelLarge,
+          tabs: [
             for (var i = 0; i < labels.length; i++)
-              Expanded(
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 2),
-                  child: _UploadTabButton(
-                    label: labels[i],
-                    isSelected: selectedIndex == i,
-                    onTap: () => onSelected(i),
-                  ),
+              Tab(
+                iconMargin: const EdgeInsets.only(bottom: 4),
+                icon: Icon(
+                  i == 0
+                      ? Icons.cloud_upload_outlined
+                      : Icons.photo_library_outlined,
+                  color: selectedIndex == i
+                      ? theme.colorScheme.onPrimary
+                      : theme.colorScheme.onSurfaceVariant,
                 ),
+                text: labels[i],
               ),
           ],
-        ),
-      ),
-    );
-  }
-}
-
-class _UploadTabButton extends StatelessWidget {
-  const _UploadTabButton({
-    super.key,
-    required this.label,
-    required this.isSelected,
-    required this.onTap,
-  });
-
-  final String label;
-  final bool isSelected;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    return InkWell(
-      onTap: isSelected ? null : onTap,
-      borderRadius: BorderRadius.circular(10),
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 200),
-        curve: Curves.easeOutCubic,
-        padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 8),
-        decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(10),
-          color: isSelected
-              ? theme.colorScheme.primary.withOpacity(0.12)
-              : Colors.transparent,
-        ),
-        child: Center(
-          child: Text(
-            label,
-            style: theme.textTheme.labelLarge?.copyWith(
-              color: isSelected
-                  ? theme.colorScheme.primary
-                  : theme.colorScheme.onSurfaceVariant,
-              fontWeight: isSelected ? FontWeight.w600 : FontWeight.w500,
-            ),
-          ),
         ),
       ),
     );
