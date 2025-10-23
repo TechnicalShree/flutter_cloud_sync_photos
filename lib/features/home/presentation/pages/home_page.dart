@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../../../gallery/presentation/pages/gallery_page.dart';
 import '../../../albums/presentation/pages/album_page.dart';
 import '../../../settings/presentation/pages/settings_page.dart';
+import '../../../uploads/presentation/pages/synced_photos_page.dart';
 
 class HomePage extends StatefulWidget {
   const HomePage({super.key});
@@ -26,6 +27,11 @@ class _HomePageState extends State<HomePage> {
       label: 'Albums',
     ),
     NavigationDestination(
+      icon: Icon(Icons.cloud_done_outlined),
+      selectedIcon: Icon(Icons.cloud_done),
+      label: 'Synced',
+    ),
+    NavigationDestination(
       icon: Icon(Icons.settings_outlined),
       selectedIcon: Icon(Icons.settings),
       label: 'Settings',
@@ -42,6 +48,7 @@ class _HomePageState extends State<HomePage> {
     final pages = [
       const GalleryPage(),
       const AlbumPage(),
+      const SyncedPhotosPage(),
       const SettingsPage(),
     ];
 

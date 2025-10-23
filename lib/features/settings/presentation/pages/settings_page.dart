@@ -28,7 +28,6 @@ class _SettingsPageState extends State<SettingsPage>
   final GalleryUploadQueue _uploadQueue = galleryUploadQueue;
 
   late final AnimationController _backgroundController;
-  late final TabController _uploadTabController;
   UserDetails? _userDetails;
   bool _loadingUser = true;
   bool _loadingPreferences = true;
@@ -39,11 +38,6 @@ class _SettingsPageState extends State<SettingsPage>
   List<UploadJob> _uploadJobs = const [];
   VoidCallback? _uploadQueueListener;
   bool _showAllUploads = false;
-  bool _loadingSyncedPhotos = true;
-  bool _showAllSyncedPhotos = false;
-  int _selectedUploadTab = 0;
-  int _completedJobCount = 0;
-  List<_SyncedPhotoEntry> _syncedPhotos = const [];
   final List<bool> _sectionVisible = List<bool>.filled(4, false);
 
   @override
@@ -53,12 +47,7 @@ class _SettingsPageState extends State<SettingsPage>
       vsync: this,
       duration: const Duration(seconds: 16),
     )..repeat(reverse: true);
-    _uploadTabController = TabController(length: 2, vsync: this)
-      ..addListener(_handleUploadTabChanged);
-    _selectedUploadTab = _uploadTabController.index;
     _uploadJobs = _uploadQueue.jobs;
-    _completedJobCount =
-        _uploadJobs.where((job) => job.status == UploadJobStatus.completed).length;
     _uploadQueueListener = _handleUploadQueueUpdate;
     _uploadQueue.addListener(_uploadQueueListener!);
     _loadInitialData();
@@ -83,7 +72,6 @@ class _SettingsPageState extends State<SettingsPage>
     await Future.wait([
       _loadUserDetails(),
       _loadUploadPreferences(),
-      _loadSyncedPhotos(showSpinner: true, resetExpanded: true),
     ]);
   }
 
@@ -132,22 +120,12 @@ class _SettingsPageState extends State<SettingsPage>
     if (!mounted) {
       return;
     }
-    var shouldRefreshSynced = false;
     setState(() {
       _uploadJobs = _uploadQueue.jobs;
       if (_uploadJobs.length <= 10 && _showAllUploads) {
         _showAllUploads = false;
       }
-      final completedCount =
-          _uploadJobs.where((job) => job.status == UploadJobStatus.completed).length;
-      if (completedCount != _completedJobCount) {
-        _completedJobCount = completedCount;
-        shouldRefreshSynced = true;
-      }
     });
-    if (shouldRefreshSynced) {
-      unawaited(_loadSyncedPhotos());
-    }
   }
 
   Future<void> _handlePrivateToggle(bool value) async {
@@ -270,7 +248,6 @@ class _SettingsPageState extends State<SettingsPage>
       messenger.showSnackBar(
         const SnackBar(content: Text('Upload metadata cleared')),
       );
-      await _loadSyncedPhotos(showSpinner: true, resetExpanded: true);
     } finally {
       if (mounted) {
         setState(() {
@@ -283,25 +260,11 @@ class _SettingsPageState extends State<SettingsPage>
   @override
   void dispose() {
     _backgroundController.dispose();
-    _uploadTabController.removeListener(_handleUploadTabChanged);
-    _uploadTabController.dispose();
     if (_uploadQueueListener != null) {
       _uploadQueue.removeListener(_uploadQueueListener!);
       _uploadQueueListener = null;
     }
     super.dispose();
-  }
-
-  void _handleUploadTabChanged() {
-    if (_uploadTabController.indexIsChanging) {
-      return;
-    }
-    final index = _uploadTabController.index;
-    if (index != _selectedUploadTab && mounted) {
-      setState(() {
-        _selectedUploadTab = index;
-      });
-    }
   }
 
   @override
@@ -620,24 +583,7 @@ class _SettingsPageState extends State<SettingsPage>
   Widget _buildUploadProgressSection(ThemeData theme) {
     return _SectionCard(
       title: 'Background Uploads',
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          AnimatedSwitcher(
-            duration: const Duration(milliseconds: 260),
-            switchInCurve: Curves.easeOutCubic,
-            switchOutCurve: Curves.easeInCubic,
-            child: _selectedUploadTab == 0
-                ? _buildUploadQueueTab(theme)
-                : _buildSyncedPhotosTab(theme),
-          ),
-          const SizedBox(height: 16),
-          _UploadTabBar(
-            controller: _uploadTabController,
-            selectedIndex: _selectedUploadTab,
-          ),
-        ],
-      ),
+      child: _buildUploadQueueTab(theme),
     );
   }
 
@@ -738,101 +684,6 @@ class _SettingsPageState extends State<SettingsPage>
     );
   }
 
-  Widget _buildSyncedPhotosTab(ThemeData theme) {
-    if (_loadingSyncedPhotos) {
-      return const KeyedSubtree(
-        key: ValueKey('synced-loading'),
-        child: Padding(
-          padding: EdgeInsets.symmetric(vertical: 12),
-          child: Center(child: _LoadingIndicator()),
-        ),
-      );
-    }
-
-    final entries = _syncedPhotos;
-    const maxVisible = 20;
-    final hasEntries = entries.isNotEmpty;
-    final displayAll = _showAllSyncedPhotos || entries.length <= maxVisible;
-    final displayed = displayAll ? entries : entries.take(maxVisible).toList();
-    final hasMore = entries.length > maxVisible && !_showAllSyncedPhotos;
-    final showLess = entries.length > maxVisible && _showAllSyncedPhotos;
-
-    return KeyedSubtree(
-      key: const ValueKey('synced-tab'),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            'Synced photos recorded: ${entries.length}',
-            style: theme.textTheme.bodyMedium?.copyWith(
-              color: theme.colorScheme.onSurfaceVariant,
-            ),
-          ),
-          const SizedBox(height: 12),
-          if (!hasEntries)
-            Row(
-              children: [
-                Icon(
-                  Icons.photo_library_outlined,
-                  color: theme.colorScheme.onSurfaceVariant,
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Text(
-                    'No synced photos recorded yet.',
-                    style: theme.textTheme.bodyMedium?.copyWith(
-                      color: theme.colorScheme.onSurfaceVariant,
-                    ),
-                  ),
-                ),
-              ],
-            )
-          else ...[
-            ListView.separated(
-              shrinkWrap: true,
-              physics: const NeverScrollableScrollPhysics(),
-              itemCount: displayed.length,
-              separatorBuilder: (_, __) => const SizedBox(height: 8),
-              itemBuilder: (context, index) {
-                final entry = displayed[index];
-                return _SyncedPhotoRow(entry: entry);
-              },
-            ),
-            if (hasMore || showLess)
-              Padding(
-                padding: const EdgeInsets.only(top: 12),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    if (hasMore)
-                      TextButton.icon(
-                        onPressed: () {
-                          setState(() {
-                            _showAllSyncedPhotos = true;
-                          });
-                        },
-                        icon: const Icon(Icons.expand_more),
-                        label: Text('Show all (${entries.length})'),
-                      ),
-                    if (showLess)
-                      TextButton.icon(
-                        onPressed: () {
-                          setState(() {
-                            _showAllSyncedPhotos = false;
-                          });
-                        },
-                        icon: const Icon(Icons.expand_less),
-                        label: const Text('Show less'),
-                      ),
-                  ],
-                ),
-              ),
-          ],
-        ],
-      ),
-    );
-  }
-
   String _resolveUserSegment(UserDetails? details) {
     final explicitName = details?.name?.trim();
     if (explicitName != null && explicitName.isNotEmpty) {
@@ -885,45 +736,6 @@ class _SettingsPageState extends State<SettingsPage>
     return encoder.convert(rawJson);
   }
 
-  Future<void> _loadSyncedPhotos({bool showSpinner = false, bool resetExpanded = false}) async {
-    if (!mounted) {
-      return;
-    }
-    if (showSpinner) {
-      setState(() {
-        _loadingSyncedPhotos = true;
-        if (resetExpanded) {
-          _showAllSyncedPhotos = false;
-        }
-      });
-    } else if (resetExpanded) {
-      setState(() {
-        _showAllSyncedPhotos = false;
-      });
-    }
-
-    final records = await _actions.loadSyncedPhotos();
-    if (!mounted) {
-      return;
-    }
-
-    final entries = records.entries
-        .map(
-          (entry) => _SyncedPhotoEntry(
-            assetId: entry.key,
-            contentHash: entry.value,
-          ),
-        )
-        .where((entry) => entry.assetId.isNotEmpty && entry.contentHash.isNotEmpty)
-        .toList()
-      ..sort((a, b) => a.assetId.compareTo(b.assetId));
-
-    setState(() {
-      _syncedPhotos = entries;
-      _loadingSyncedPhotos = false;
-    });
-  }
-
   Widget _buildLogoutSection(ThemeData theme) {
     return _SectionCard(
       title: 'Session',
@@ -962,123 +774,6 @@ class _SettingsPageState extends State<SettingsPage>
               key: ValueKey(_processingLogout),
             ),
           ),
-        ),
-      ),
-    );
-  }
-}
-
-class _UploadTabBar extends StatelessWidget {
-  const _UploadTabBar({
-    super.key,
-    required this.controller,
-    required this.selectedIndex,
-  });
-
-  final TabController controller;
-  final int selectedIndex;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final labels = const ['In progress', 'Synced'];
-    return DecoratedBox(
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(12),
-        color: theme.colorScheme.surfaceVariant.withOpacity(0.2),
-      ),
-      child: ClipRRect(
-        borderRadius: BorderRadius.circular(12),
-        child: TabBar(
-          controller: controller,
-          indicator: BoxDecoration(
-            borderRadius: BorderRadius.circular(12),
-            color: theme.colorScheme.primary,
-          ),
-          indicatorSize: TabBarIndicatorSize.tab,
-          labelColor: theme.colorScheme.onPrimary,
-          unselectedLabelColor: theme.colorScheme.onSurfaceVariant,
-          labelStyle: theme.textTheme.labelLarge?.copyWith(
-            fontWeight: FontWeight.w600,
-          ),
-          unselectedLabelStyle: theme.textTheme.labelLarge,
-          tabs: [
-            for (var i = 0; i < labels.length; i++)
-              Tab(
-                iconMargin: const EdgeInsets.only(bottom: 4),
-                icon: Icon(
-                  i == 0
-                      ? Icons.cloud_upload_outlined
-                      : Icons.photo_library_outlined,
-                  color: selectedIndex == i
-                      ? theme.colorScheme.onPrimary
-                      : theme.colorScheme.onSurfaceVariant,
-                ),
-                text: labels[i],
-              ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _SyncedPhotoEntry {
-  const _SyncedPhotoEntry({required this.assetId, required this.contentHash});
-
-  final String assetId;
-  final String contentHash;
-
-  String get shortHash {
-    if (contentHash.length <= 12) {
-      return contentHash;
-    }
-    return '${contentHash.substring(0, 12)}…';
-  }
-}
-
-class _SyncedPhotoRow extends StatelessWidget {
-  const _SyncedPhotoRow({super.key, required this.entry});
-
-  final _SyncedPhotoEntry entry;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    return DecoratedBox(
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(14),
-        color: theme.colorScheme.surfaceVariant.withOpacity(0.35),
-      ),
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Icon(
-              Icons.photo_outlined,
-              color: theme.colorScheme.primary,
-            ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    entry.assetId,
-                    style: theme.textTheme.titleSmall,
-                  ),
-                  const SizedBox(height: 4),
-                  Text(
-                    'Content hash: ${entry.shortHash}',
-                    style: theme.textTheme.bodySmall?.copyWith(
-                      color: theme.colorScheme.onSurfaceVariant,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ],
         ),
       ),
     );
