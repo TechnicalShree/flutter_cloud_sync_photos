@@ -17,3 +17,8 @@ generate a trusted release build:
 The Gradle configuration now fails release builds when no keystore
 configuration is provided. This prevents accidental debug-signed releases that
 trigger Play Protect warnings.
+
+> **Heads up:** Debug builds now install with the application ID
+> `com.example.flutter_cloud_sync_photos.debug` so they no longer conflict with
+> signed release builds. If you already have an older debug build installed, be
+> sure to uninstall it once before installing the newly signed release.

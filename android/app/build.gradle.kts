@@ -66,6 +66,10 @@ android {
     }
 
     buildTypes {
+        debug {
+            applicationIdSuffix = ".debug"
+            versionNameSuffix = "-debug"
+        }
         release {
             if (!keystorePropertiesFile.exists()) {
                 throw GradleException("Missing key.properties. Create one based on android/key.properties.sample to sign release builds with your own keystore.")
