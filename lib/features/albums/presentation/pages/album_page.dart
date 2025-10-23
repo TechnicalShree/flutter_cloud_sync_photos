@@ -6,6 +6,7 @@ import 'package:photo_manager/photo_manager.dart';
 import 'package:photo_manager_image_provider/photo_manager_image_provider.dart';
 
 import '../../../gallery/presentation/widgets/gallery_permission_prompt.dart';
+import '../widgets/album_empty_state.dart';
 import 'album_detail_page.dart';
 
 class AlbumPage extends StatefulWidget {
@@ -17,11 +18,14 @@ class AlbumPage extends StatefulWidget {
   State<AlbumPage> createState() => _AlbumPageState();
 }
 
-class _AlbumPageState extends State<AlbumPage> {
+class _AlbumPageState extends State<AlbumPage>
+    with SingleTickerProviderStateMixin {
   static const int _pageSize = 8;
   static const Duration _microAnimationDuration = Duration(milliseconds: 220);
   static const Curve _microAnimationCurve = Curves.easeOutCubic;
   static const Duration _tileStaggerDelay = Duration(milliseconds: 45);
+
+  late final AnimationController _backgroundController;
 
   bool _isLoading = true;
   bool _hasPermission = false;
@@ -42,12 +46,17 @@ class _AlbumPageState extends State<AlbumPage> {
   @override
   void initState() {
     super.initState();
+    _backgroundController = AnimationController(
+      vsync: this,
+      duration: const Duration(seconds: 18),
+    )..repeat(reverse: true);
     _scrollController = ScrollController()..addListener(_onScroll);
     _loadAlbums(reset: true);
   }
 
   @override
   void dispose() {
+    _backgroundController.dispose();
     _scrollController.removeListener(_onScroll);
     _scrollController.dispose();
     super.dispose();
@@ -281,33 +290,65 @@ class _AlbumPageState extends State<AlbumPage> {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
 
-    return Scaffold(
-      backgroundColor: theme.colorScheme.surface,
-      body: SafeArea(
-        child: RefreshIndicator(
-          color: theme.colorScheme.primary,
-          onRefresh: _handleRefresh,
-          child: AnimatedSwitcher(
-            duration: _microAnimationDuration,
-            switchInCurve: _microAnimationCurve,
-            switchOutCurve: Curves.easeInCubic,
-            transitionBuilder: (child, animation) {
-              final offsetAnimation = Tween<Offset>(
-                begin: const Offset(0, 0.04),
-                end: Offset.zero,
-              ).animate(CurvedAnimation(
-                parent: animation,
-                curve: Curves.easeOutCubic,
-              ));
-              return FadeTransition(
-                opacity: animation,
-                child: SlideTransition(
-                  position: offsetAnimation,
-                  child: child,
-                ),
-              );
-            },
-            child: _buildContent(theme),
+    return AnimatedBuilder(
+      animation: _backgroundController,
+      builder: (context, child) {
+        final curvedProgress = CurvedAnimation(
+          parent: _backgroundController,
+          curve: Curves.easeInOut,
+        ).value;
+
+        final gradient = LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [
+            Color.lerp(
+              theme.colorScheme.surface,
+              theme.colorScheme.primaryContainer.withOpacity(0.85),
+              curvedProgress * 0.6,
+            )!,
+            Color.lerp(
+              theme.colorScheme.surface,
+              theme.colorScheme.secondaryContainer.withOpacity(0.8),
+              0.35 + (curvedProgress * 0.65),
+            )!,
+          ],
+        );
+
+        return DecoratedBox(
+          decoration: BoxDecoration(gradient: gradient),
+          child: child,
+        );
+      },
+      child: Scaffold(
+        backgroundColor: Colors.transparent,
+        extendBody: true,
+        body: SafeArea(
+          child: RefreshIndicator(
+            color: theme.colorScheme.primary,
+            onRefresh: _handleRefresh,
+            child: AnimatedSwitcher(
+              duration: _microAnimationDuration,
+              switchInCurve: _microAnimationCurve,
+              switchOutCurve: Curves.easeInCubic,
+              transitionBuilder: (child, animation) {
+                final offsetAnimation = Tween<Offset>(
+                  begin: const Offset(0, 0.04),
+                  end: Offset.zero,
+                ).animate(CurvedAnimation(
+                  parent: animation,
+                  curve: Curves.easeOutCubic,
+                ));
+                return FadeTransition(
+                  opacity: animation,
+                  child: SlideTransition(
+                    position: offsetAnimation,
+                    child: child,
+                  ),
+                );
+              },
+              child: _buildContent(theme),
+            ),
           ),
         ),
       ),
@@ -334,10 +375,25 @@ class _AlbumPageState extends State<AlbumPage> {
       key: ValueKey('${_personalAlbums.length}-${_sharedAlbums.length}'),
       child: CustomScrollView(
         controller: _scrollController,
-        physics: const AlwaysScrollableScrollPhysics(),
+        physics: const BouncingScrollPhysics(
+          parent: AlwaysScrollableScrollPhysics(),
+        ),
         slivers: [
           SliverPadding(
-            padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 24),
+            padding: const EdgeInsets.fromLTRB(24, 24, 24, 12),
+            sliver: SliverToBoxAdapter(
+              child: _AlbumsHeader(
+                personalCount: _allPersonalAlbums.length,
+                sharedCount: _allSharedAlbums.length,
+                isSyncEnabled: _cloudSyncEnabled,
+                isEmpty: _personalAlbums.isEmpty && _sharedAlbums.isEmpty,
+                animationDuration: _microAnimationDuration,
+                animationCurve: _microAnimationCurve,
+              ),
+            ),
+          ),
+          SliverPadding(
+            padding: const EdgeInsets.fromLTRB(24, 0, 24, 32),
             sliver: SliverList.list(
               children: [
                 if (_personalAlbums.isNotEmpty)
@@ -348,6 +404,7 @@ class _AlbumPageState extends State<AlbumPage> {
                     animationDuration: _microAnimationDuration,
                     animationCurve: _microAnimationCurve,
                     tileStaggerDelay: _tileStaggerDelay,
+                    highlight: false,
                   ),
                 if (_sharedAlbums.isNotEmpty)
                   Padding(
@@ -361,14 +418,30 @@ class _AlbumPageState extends State<AlbumPage> {
                       animationDuration: _microAnimationDuration,
                       animationCurve: _microAnimationCurve,
                       tileStaggerDelay: _tileStaggerDelay,
+                      highlight: true,
+                    ),
+                  ),
+                if (_personalAlbums.isEmpty && _sharedAlbums.isEmpty)
+                  _SectionContainer(
+                    animationDuration: _microAnimationDuration,
+                    animationCurve: _microAnimationCurve,
+                    highlight: true,
+                    child: const Padding(
+                      padding: EdgeInsets.symmetric(vertical: 8),
+                      child: AlbumEmptyState(),
                     ),
                   ),
                 const SizedBox(height: 28),
-                _CloudSyncToggle(
-                  value: _cloudSyncEnabled,
-                  onChanged: _toggleCloudSync,
+                _SectionContainer(
                   animationDuration: _microAnimationDuration,
                   animationCurve: _microAnimationCurve,
+                  highlight: _cloudSyncEnabled,
+                  child: _CloudSyncToggle(
+                    value: _cloudSyncEnabled,
+                    onChanged: _toggleCloudSync,
+                    animationDuration: _microAnimationDuration,
+                    animationCurve: _microAnimationCurve,
+                  ),
                 ),
               ],
             ),
@@ -389,7 +462,14 @@ class _AlbumPageState extends State<AlbumPage> {
                         ),
                       ),
                     )
-                  : const SizedBox.shrink(),
+                  : !_hasMoreAlbums &&
+                          (_personalAlbums.isNotEmpty ||
+                              _sharedAlbums.isNotEmpty)
+                      ? const Padding(
+                          padding: EdgeInsets.symmetric(vertical: 24),
+                          child: _EndOfListMessage(),
+                        )
+                      : const SizedBox.shrink(),
             ),
           ),
         ],
@@ -441,6 +521,7 @@ class _AlbumSection extends StatelessWidget {
     required this.animationDuration,
     required this.animationCurve,
     required this.tileStaggerDelay,
+    required this.highlight,
     this.onAlbumTap,
   });
 
@@ -450,6 +531,7 @@ class _AlbumSection extends StatelessWidget {
   final Duration animationDuration;
   final Curve animationCurve;
   final Duration tileStaggerDelay;
+  final bool highlight;
 
   @override
   Widget build(BuildContext context) {
@@ -461,53 +543,58 @@ class _AlbumSection extends StatelessWidget {
     return AnimatedSize(
       duration: animationDuration,
       curve: animationCurve,
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          AnimatedDefaultTextStyle(
-            duration: animationDuration,
-            curve: animationCurve,
-            style: theme.textTheme.titleLarge?.copyWith(
-                  fontWeight: FontWeight.w700,
-                ) ??
-                const TextStyle(),
-            child: Text(title),
-          ),
-          const SizedBox(height: 16),
-          AnimatedSwitcher(
-            duration: animationDuration,
-            switchInCurve: animationCurve,
-            switchOutCurve: Curves.easeInCubic,
-            child: GridView.builder(
-              key: ValueKey('$title-${albums.length}'),
-              shrinkWrap: true,
-              physics: const NeverScrollableScrollPhysics(),
-              itemCount: albums.length,
-              gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                crossAxisCount: 2,
-                crossAxisSpacing: 16,
-                mainAxisSpacing: 16,
-                childAspectRatio: 3 / 3.6,
-              ),
-              itemBuilder: (context, index) {
-                final album = albums[index];
-                final cappedIndex = math.min(index, 6);
-                final delay = Duration(
-                  milliseconds:
-                      tileStaggerDelay.inMilliseconds * cappedIndex,
-                );
-                return _AlbumTile(
-                  key: ValueKey(album.id),
-                  album: album,
-                  onTap: onAlbumTap,
-                  animationDuration: animationDuration,
-                  animationCurve: animationCurve,
-                  entryDelay: delay,
-                );
-              },
+      child: _SectionContainer(
+        animationDuration: animationDuration,
+        animationCurve: animationCurve,
+        highlight: highlight,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            AnimatedDefaultTextStyle(
+              duration: animationDuration,
+              curve: animationCurve,
+              style: theme.textTheme.titleLarge?.copyWith(
+                    fontWeight: FontWeight.w700,
+                  ) ??
+                  const TextStyle(),
+              child: Text(title),
             ),
-          ),
-        ],
+            const SizedBox(height: 16),
+            AnimatedSwitcher(
+              duration: animationDuration,
+              switchInCurve: animationCurve,
+              switchOutCurve: Curves.easeInCubic,
+              child: GridView.builder(
+                key: ValueKey('$title-${albums.length}'),
+                shrinkWrap: true,
+                physics: const NeverScrollableScrollPhysics(),
+                itemCount: albums.length,
+                gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                  crossAxisCount: 2,
+                  crossAxisSpacing: 18,
+                  mainAxisSpacing: 18,
+                  childAspectRatio: 3 / 3.55,
+                ),
+                itemBuilder: (context, index) {
+                  final album = albums[index];
+                  final cappedIndex = math.min(index, 6);
+                  final delay = Duration(
+                    milliseconds:
+                        tileStaggerDelay.inMilliseconds * cappedIndex,
+                  );
+                  return _AlbumTile(
+                    key: ValueKey(album.id),
+                    album: album,
+                    onTap: onAlbumTap,
+                    animationDuration: animationDuration,
+                    animationCurve: animationCurve,
+                    entryDelay: delay,
+                  );
+                },
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -637,6 +724,12 @@ class _AlbumTileState extends State<_AlbumTile> {
       );
     }
 
+    final metadataBadge = _AlbumCountBadge(
+      count: widget.album.assetCount,
+      animationDuration: widget.animationDuration,
+      animationCurve: widget.animationCurve,
+    );
+
     Widget cover = AnimatedContainer(
       duration: widget.animationDuration,
       curve: widget.animationCurve,
@@ -654,11 +747,38 @@ class _AlbumTileState extends State<_AlbumTile> {
       ),
       child: ClipRRect(
         borderRadius: BorderRadius.circular(20),
-        child: AnimatedSwitcher(
-          duration: widget.animationDuration,
-          switchInCurve: widget.animationCurve,
-          switchOutCurve: Curves.easeInCubic,
-          child: coverContent,
+        child: Stack(
+          fit: StackFit.expand,
+          children: [
+            AnimatedSwitcher(
+              duration: widget.animationDuration,
+              switchInCurve: widget.animationCurve,
+              switchOutCurve: Curves.easeInCubic,
+              child: coverContent,
+            ),
+            Positioned.fill(
+              child: IgnorePointer(
+                child: DecoratedBox(
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(
+                      begin: Alignment.bottomCenter,
+                      end: Alignment.topCenter,
+                      colors: [
+                        Colors.black.withOpacity(0.35),
+                        Colors.transparent,
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            ),
+            Positioned(
+              left: 12,
+              right: 12,
+              bottom: 12,
+              child: metadataBadge,
+            ),
+          ],
         ),
       ),
     );
@@ -674,30 +794,16 @@ class _AlbumTileState extends State<_AlbumTile> {
           : theme.colorScheme.onSurface,
     );
 
-    final subtitleStyle = theme.textTheme.bodyMedium?.copyWith(
-      color: theme.colorScheme.onSurfaceVariant,
-    );
-
     Widget content = Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Expanded(child: cover),
-        const SizedBox(height: 12),
+        const SizedBox(height: 14),
         AnimatedDefaultTextStyle(
           duration: widget.animationDuration,
           curve: widget.animationCurve,
           style: titleStyle ?? const TextStyle(),
           child: Text(widget.album.name),
-        ),
-        AnimatedDefaultTextStyle(
-          duration: widget.animationDuration,
-          curve: widget.animationCurve,
-          style: subtitleStyle ?? const TextStyle(),
-          child: Text(
-            widget.album.assetCount == null
-                ? '—'
-                : '${widget.album.assetCount} ${widget.album.assetCount == 1 ? "photo" : "photos"}',
-          ),
         ),
       ],
     );
@@ -764,8 +870,8 @@ class _CloudSyncToggle extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final backgroundColor = value
-        ? theme.colorScheme.primaryContainer
-        : theme.colorScheme.surfaceContainerHighest;
+        ? theme.colorScheme.primaryContainer.withOpacity(0.9)
+        : theme.colorScheme.surfaceContainerHighest.withOpacity(0.9);
     final iconColor = value
         ? theme.colorScheme.onPrimaryContainer
         : theme.colorScheme.onSurfaceVariant;
@@ -833,6 +939,361 @@ class _CloudSyncToggle extends StatelessWidget {
           ),
         ],
       ),
+    );
+  }
+}
+
+class _AlbumsHeader extends StatelessWidget {
+  const _AlbumsHeader({
+    required this.personalCount,
+    required this.sharedCount,
+    required this.isSyncEnabled,
+    required this.isEmpty,
+    required this.animationDuration,
+    required this.animationCurve,
+  });
+
+  final int personalCount;
+  final int sharedCount;
+  final bool isSyncEnabled;
+  final bool isEmpty;
+  final Duration animationDuration;
+  final Curve animationCurve;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final totalAlbums = personalCount + sharedCount;
+
+    final headlineStyle = theme.textTheme.headlineSmall?.copyWith(
+      fontWeight: FontWeight.w700,
+      letterSpacing: -0.4,
+    );
+
+    final description = totalAlbums == 0
+        ? 'Curate vibrant collections by grouping the memories you love.'
+        : 'Browse ${totalAlbums == 1 ? 'your album' : 'your $totalAlbums albums'} and relive the highlights.';
+
+    final chips = [
+      _AlbumsMetricChip(
+        icon: Icons.person_outline,
+        label: 'Personal',
+        value: personalCount,
+        animationDuration: animationDuration,
+        animationCurve: animationCurve,
+        highlight: personalCount > 0,
+      ),
+      _AlbumsMetricChip(
+        icon: Icons.groups_outlined,
+        label: 'Shared',
+        value: sharedCount,
+        animationDuration: animationDuration,
+        animationCurve: animationCurve,
+        highlight: sharedCount > 0,
+      ),
+      _AlbumsMetricChip(
+        icon: isSyncEnabled
+            ? Icons.cloud_done_rounded
+            : Icons.cloud_off_outlined,
+        label: isSyncEnabled ? 'Sync on' : 'Sync paused',
+        value: null,
+        animationDuration: animationDuration,
+        animationCurve: animationCurve,
+        highlight: isSyncEnabled,
+      ),
+    ];
+
+    return _SectionContainer(
+      animationDuration: animationDuration,
+      animationCurve: animationCurve,
+      highlight: !isEmpty,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          AnimatedDefaultTextStyle(
+            duration: animationDuration,
+            curve: animationCurve,
+            style: headlineStyle ?? const TextStyle(),
+            child: const Text('Albums'),
+          ),
+          const SizedBox(height: 8),
+          AnimatedSwitcher(
+            duration: animationDuration,
+            switchInCurve: animationCurve,
+            switchOutCurve: Curves.easeInCubic,
+            child: Text(
+              description,
+              key: ValueKey(description),
+              style: theme.textTheme.bodyMedium?.copyWith(
+                color: theme.colorScheme.onSurfaceVariant,
+              ),
+            ),
+          ),
+          const SizedBox(height: 18),
+          Wrap(
+            spacing: 12,
+            runSpacing: 12,
+            children: chips,
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _AlbumsMetricChip extends StatelessWidget {
+  const _AlbumsMetricChip({
+    required this.icon,
+    required this.label,
+    required this.animationDuration,
+    required this.animationCurve,
+    this.value,
+    this.highlight = false,
+  });
+
+  final IconData icon;
+  final String label;
+  final int? value;
+  final Duration animationDuration;
+  final Curve animationCurve;
+  final bool highlight;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final displayValue = value == null
+        ? label
+        : value == 0
+            ? 'None yet'
+            : '$value';
+
+    final backgroundColor = highlight
+        ? theme.colorScheme.primaryContainer.withOpacity(0.9)
+        : theme.colorScheme.surfaceContainerHighest.withOpacity(0.85);
+    final foregroundColor = highlight
+        ? theme.colorScheme.onPrimaryContainer
+        : theme.colorScheme.onSurfaceVariant;
+
+    return TweenAnimationBuilder<double>(
+      tween: Tween(begin: 0.94, end: 1),
+      duration: animationDuration,
+      curve: animationCurve,
+      builder: (context, scale, child) {
+        return Transform.scale(scale: scale, child: child);
+      },
+      child: AnimatedContainer(
+        duration: animationDuration,
+        curve: animationCurve,
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+        decoration: BoxDecoration(
+          color: backgroundColor,
+          borderRadius: BorderRadius.circular(24),
+          border: Border.all(
+            color: foregroundColor.withOpacity(0.2),
+          ),
+          boxShadow: [
+            BoxShadow(
+              color: theme.colorScheme.shadow.withOpacity(0.08),
+              blurRadius: 12,
+              offset: const Offset(0, 8),
+            ),
+          ],
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(
+              icon,
+              size: 18,
+              color: foregroundColor,
+            ),
+            const SizedBox(width: 8),
+            AnimatedDefaultTextStyle(
+              duration: animationDuration,
+              curve: animationCurve,
+              style: theme.textTheme.labelLarge?.copyWith(
+                    fontWeight: FontWeight.w600,
+                    color: foregroundColor,
+                  ) ??
+                  TextStyle(color: foregroundColor),
+              child: Text(displayValue),
+            ),
+            if (value != null && value! > 0) ...[
+              const SizedBox(width: 8),
+              AnimatedDefaultTextStyle(
+                duration: animationDuration,
+                curve: animationCurve,
+                style: theme.textTheme.labelSmall?.copyWith(
+                      color: foregroundColor.withOpacity(0.8),
+                    ) ??
+                    TextStyle(color: foregroundColor.withOpacity(0.8)),
+                child: Text(label),
+              ),
+            ] else ...[
+              const SizedBox(width: 8),
+              AnimatedDefaultTextStyle(
+                duration: animationDuration,
+                curve: animationCurve,
+                style: theme.textTheme.labelSmall?.copyWith(
+                      color: foregroundColor.withOpacity(0.65),
+                    ) ??
+                    TextStyle(color: foregroundColor.withOpacity(0.65)),
+                child: Text(label),
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _SectionContainer extends StatelessWidget {
+  const _SectionContainer({
+    required this.child,
+    required this.animationDuration,
+    required this.animationCurve,
+    this.highlight = false,
+  });
+
+  final Widget child;
+  final Duration animationDuration;
+  final Curve animationCurve;
+  final bool highlight;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final baseColor = theme.colorScheme.surface.withOpacity(0.82);
+    final highlightColor = theme.colorScheme.primaryContainer.withOpacity(0.72);
+    final backgroundColor = highlight
+        ? Color.lerp(baseColor, highlightColor, 0.35) ?? highlightColor
+        : baseColor;
+
+    final borderColor = highlight
+        ? theme.colorScheme.primary.withOpacity(0.22)
+        : theme.colorScheme.outlineVariant.withOpacity(0.22);
+
+    return AnimatedContainer(
+      duration: animationDuration,
+      curve: animationCurve,
+      padding: const EdgeInsets.fromLTRB(22, 20, 22, 22),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(28),
+        color: backgroundColor,
+        border: Border.all(color: borderColor),
+        boxShadow: [
+          BoxShadow(
+            color: theme.colorScheme.shadow.withOpacity(0.08),
+            blurRadius: 26,
+            offset: const Offset(0, 14),
+          ),
+        ],
+      ),
+      child: child,
+    );
+  }
+}
+
+class _AlbumCountBadge extends StatelessWidget {
+  const _AlbumCountBadge({
+    required this.count,
+    required this.animationDuration,
+    required this.animationCurve,
+  });
+
+  final int? count;
+  final Duration animationDuration;
+  final Curve animationCurve;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final label = count == null
+        ? 'Loading…'
+        : '${count!} ${count == 1 ? 'photo' : 'photos'}';
+
+    return TweenAnimationBuilder<double>(
+      tween: Tween(begin: 0.92, end: 1),
+      duration: animationDuration,
+      curve: animationCurve,
+      builder: (context, scale, child) {
+        return Transform.scale(scale: scale, child: child);
+      },
+      child: AnimatedContainer(
+        duration: animationDuration,
+        curve: animationCurve,
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
+        decoration: BoxDecoration(
+          color: theme.colorScheme.surface.withOpacity(0.92),
+          borderRadius: BorderRadius.circular(24),
+          border: Border.all(
+            color: theme.colorScheme.outlineVariant.withOpacity(0.2),
+          ),
+          boxShadow: [
+            BoxShadow(
+              color: theme.colorScheme.shadow.withOpacity(0.12),
+              blurRadius: 16,
+              offset: const Offset(0, 10),
+            ),
+          ],
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(
+              Icons.photo_library_rounded,
+              size: 16,
+              color: theme.colorScheme.primary,
+            ),
+            const SizedBox(width: 8),
+            AnimatedDefaultTextStyle(
+              duration: animationDuration,
+              curve: animationCurve,
+              style: theme.textTheme.labelLarge?.copyWith(
+                    fontWeight: FontWeight.w600,
+                    color: theme.colorScheme.onSurface,
+                  ) ??
+                  theme.textTheme.labelLarge ?? const TextStyle(),
+              child: Text(label),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _EndOfListMessage extends StatelessWidget {
+  const _EndOfListMessage();
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Icon(
+          Icons.auto_awesome_outlined,
+          size: 28,
+          color: theme.colorScheme.primary,
+        ),
+        const SizedBox(height: 8),
+        Text(
+          'You’re all caught up',
+          style: theme.textTheme.bodyLarge?.copyWith(
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+        const SizedBox(height: 4),
+        Text(
+          'Keep capturing memories to see them appear here.',
+          style: theme.textTheme.bodyMedium?.copyWith(
+            color: theme.colorScheme.onSurfaceVariant,
+          ),
+          textAlign: TextAlign.center,
+        ),
+      ],
     );
   }
 }
