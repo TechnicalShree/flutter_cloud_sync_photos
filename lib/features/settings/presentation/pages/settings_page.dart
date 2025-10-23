@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 
 import '../../../auth/data/services/auth_service.dart';
@@ -16,12 +18,14 @@ class SettingsPage extends StatefulWidget {
   State<SettingsPage> createState() => _SettingsPageState();
 }
 
-class _SettingsPageState extends State<SettingsPage> {
+class _SettingsPageState extends State<SettingsPage>
+    with SingleTickerProviderStateMixin {
   final AuthService _authService = globalAuthService;
   final UploadPreferencesStore _preferencesStore = uploadPreferencesStore;
   final SettingsActions _actions = settingsActions;
   final GalleryUploadQueue _uploadQueue = galleryUploadQueue;
 
+  late final AnimationController _backgroundController;
   UserDetails? _userDetails;
   bool _loadingUser = true;
   bool _loadingPreferences = true;
@@ -32,14 +36,34 @@ class _SettingsPageState extends State<SettingsPage> {
   List<UploadJob> _uploadJobs = const [];
   VoidCallback? _uploadQueueListener;
   bool _showAllUploads = false;
+  final List<bool> _sectionVisible = List<bool>.filled(4, false);
 
   @override
   void initState() {
     super.initState();
+    _backgroundController = AnimationController(
+      vsync: this,
+      duration: const Duration(seconds: 16),
+    )..repeat(reverse: true);
     _uploadJobs = _uploadQueue.jobs;
     _uploadQueueListener = _handleUploadQueueUpdate;
     _uploadQueue.addListener(_uploadQueueListener!);
     _loadInitialData();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) {
+        return;
+      }
+      for (var i = 0; i < _sectionVisible.length; i++) {
+        Future.delayed(Duration(milliseconds: 120 * i), () {
+          if (!mounted) {
+            return;
+          }
+          setState(() {
+            _sectionVisible[i] = true;
+          });
+        });
+      }
+    });
   }
 
   Future<void> _loadInitialData() async {
@@ -199,6 +223,7 @@ class _SettingsPageState extends State<SettingsPage> {
 
   @override
   void dispose() {
+    _backgroundController.dispose();
     if (_uploadQueueListener != null) {
       _uploadQueue.removeListener(_uploadQueueListener!);
       _uploadQueueListener = null;
@@ -210,25 +235,92 @@ class _SettingsPageState extends State<SettingsPage> {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     return Scaffold(
-      backgroundColor: theme.colorScheme.surface,
+      extendBody: true,
       appBar: AppBar(
+        backgroundColor: Colors.transparent,
         title: const Text('Settings'),
         centerTitle: true,
         elevation: 0,
       ),
-      body: SafeArea(
-        child: ListView(
-          padding: const EdgeInsets.all(24),
-          children: [
-            _buildUserSection(theme),
-            const SizedBox(height: 24),
-            _buildUploadConfigSection(theme),
-            const SizedBox(height: 24),
-            _buildUploadProgressSection(theme),
-            const SizedBox(height: 24),
-            _buildLogoutSection(theme),
-          ],
+      body: AnimatedBuilder(
+        animation: _backgroundController,
+        builder: (context, child) {
+          final curvedProgress = CurvedAnimation(
+            parent: _backgroundController,
+            curve: Curves.easeInOut,
+          ).value;
+          final gradient = LinearGradient(
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+            colors: [
+              Color.lerp(
+                theme.colorScheme.primaryContainer.withOpacity(0.6),
+                theme.colorScheme.surface,
+                curvedProgress,
+              )!,
+              Color.lerp(
+                theme.colorScheme.surface,
+                theme.colorScheme.secondaryContainer.withOpacity(0.7),
+                curvedProgress,
+              )!,
+            ],
+          );
+          return DecoratedBox(
+            decoration: BoxDecoration(gradient: gradient),
+            child: child,
+          );
+        },
+        child: SafeArea(
+          child: CustomScrollView(
+            physics: const BouncingScrollPhysics(),
+            slivers: [
+              SliverPadding(
+                padding: const EdgeInsets.fromLTRB(24, 16, 24, 32),
+                sliver: SliverList(
+                  delegate: SliverChildListDelegate(
+                    [
+                      _animatedSection(
+                        index: 0,
+                        child: _buildUserSection(theme),
+                      ),
+                      const SizedBox(height: 24),
+                      _animatedSection(
+                        index: 1,
+                        child: _buildUploadConfigSection(theme),
+                      ),
+                      const SizedBox(height: 24),
+                      _animatedSection(
+                        index: 2,
+                        child: _buildUploadProgressSection(theme),
+                      ),
+                      const SizedBox(height: 24),
+                      _animatedSection(
+                        index: 3,
+                        child: _buildLogoutSection(theme),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ],
+          ),
         ),
+      ),
+    );
+  }
+
+  Widget _animatedSection({required int index, required Widget child}) {
+    final visible = index < _sectionVisible.length && _sectionVisible[index];
+    final duration = Duration(milliseconds: 420 + (index * 40));
+    return AnimatedOpacity(
+      duration: duration,
+      curve: Curves.easeOutCubic,
+      opacity: visible ? 1 : 0,
+      child: AnimatedSlide(
+        duration: duration,
+        curve: Curves.easeOutCubic,
+        offset: visible ? Offset.zero : const Offset(0, 0.08),
+        child: child,
       ),
     );
   }
@@ -237,12 +329,7 @@ class _SettingsPageState extends State<SettingsPage> {
     if (_loadingUser) {
       return const _SectionCard(
         title: 'Account',
-        child: Center(
-          child: Padding(
-            padding: EdgeInsets.symmetric(vertical: 24),
-            child: CircularProgressIndicator(strokeWidth: 2.5),
-          ),
-        ),
+        child: _LoadingIndicator(),
       );
     }
 
@@ -252,19 +339,33 @@ class _SettingsPageState extends State<SettingsPage> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          _InfoRow(
-            label: 'Full name',
-            value:
-                _safeDisplay(details?.fullName) ??
-                _safeDisplay(details?.name) ??
-                'Unknown user',
+          Row(
+            children: [
+              _AnimatedAvatar(name: details?.fullName ?? details?.name ?? details?.user),
+              const SizedBox(width: 16),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      _safeDisplay(details?.fullName) ??
+                          _safeDisplay(details?.name) ??
+                          'Unknown user',
+                      style: theme.textTheme.titleMedium,
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      _safeDisplay(details?.user) ?? 'No username available',
+                      style: theme.textTheme.bodyMedium?.copyWith(
+                        color: theme.colorScheme.onSurfaceVariant,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
           ),
-          const SizedBox(height: 12),
-          _InfoRow(
-            label: 'Email / User',
-            value: _safeDisplay(details?.user) ?? 'Not available',
-          ),
-          const SizedBox(height: 12),
+          const SizedBox(height: 20),
           _InfoRow(
             label: 'Gender',
             value: _safeDisplay(details?.gender) ?? 'Not specified',
@@ -278,12 +379,7 @@ class _SettingsPageState extends State<SettingsPage> {
     if (_loadingPreferences) {
       return const _SectionCard(
         title: 'Upload Preferences',
-        child: Center(
-          child: Padding(
-            padding: EdgeInsets.symmetric(vertical: 24),
-            child: CircularProgressIndicator(strokeWidth: 2.5),
-          ),
-        ),
+        child: _LoadingIndicator(),
       );
     }
 
@@ -291,51 +387,116 @@ class _SettingsPageState extends State<SettingsPage> {
       title: 'Upload Preferences',
       child: Column(
         children: [
-          SwitchListTile.adaptive(
-            value: _isPrivateUploads,
-            onChanged: _handlePrivateToggle,
-            title: const Text('Upload as private'),
-            subtitle: const Text(
-              'Store uploaded photos in a private workspace',
-            ),
-            contentPadding: EdgeInsets.zero,
-          ),
-          const Divider(height: 1),
-          SwitchListTile.adaptive(
-            value: _optimizeUploads,
-            onChanged: _handleOptimizeToggle,
-            title: const Text('Optimize images'),
-            subtitle: const Text('Compress images before upload to save space'),
-            contentPadding: EdgeInsets.zero,
-          ),
-          const Divider(height: 1),
-          ListTile(
-            contentPadding: EdgeInsets.zero,
-            title: const Text('Upload folder preview'),
-            subtitle: Text(
-              _describeDefaultFolder(),
-              style: theme.textTheme.bodyMedium?.copyWith(
-                color: theme.colorScheme.onSurfaceVariant,
+          _AnimatedPreferenceTile(
+            isActive: _isPrivateUploads,
+            child: SwitchListTile.adaptive(
+              value: _isPrivateUploads,
+              onChanged: _handlePrivateToggle,
+              title: const Text('Upload as private'),
+              subtitle: const Text(
+                'Store uploaded photos in a private workspace',
+              ),
+              contentPadding: EdgeInsets.zero,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(16),
               ),
             ),
           ),
-          const Divider(height: 1),
-          ListTile(
-            contentPadding: EdgeInsets.zero,
-            title: const Text('Reset upload metadata'),
-            subtitle: const Text(
-              'Clears synced photo markers so uploads can run again',
+          const SizedBox(height: 12),
+          _AnimatedPreferenceTile(
+            isActive: _optimizeUploads,
+            child: SwitchListTile.adaptive(
+              value: _optimizeUploads,
+              onChanged: _handleOptimizeToggle,
+              title: const Text('Optimize images'),
+              subtitle:
+                  const Text('Compress images before upload to save space'),
+              contentPadding: EdgeInsets.zero,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(16),
+              ),
             ),
-            trailing: ElevatedButton.icon(
-              onPressed: _resettingMetadata ? null : _handleResetMetadata,
-              icon: _resettingMetadata
-                  ? const SizedBox(
-                      width: 16,
-                      height: 16,
-                      child: CircularProgressIndicator(strokeWidth: 2),
-                    )
-                  : const Icon(Icons.restart_alt),
-              label: Text(_resettingMetadata ? 'Resetting...' : 'Reset'),
+          ),
+          const SizedBox(height: 20),
+          DecoratedBox(
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(18),
+              color: theme.colorScheme.surfaceVariant.withOpacity(0.16),
+            ),
+            child: ListTile(
+              contentPadding:
+                  const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+              title: const Text('Upload folder preview'),
+              subtitle: Text(
+                _describeDefaultFolder(),
+                style: theme.textTheme.bodyMedium?.copyWith(
+                  color: theme.colorScheme.onSurfaceVariant,
+                ),
+              ),
+            ),
+          ),
+          const SizedBox(height: 20),
+          Material(
+            color: Colors.transparent,
+            borderRadius: BorderRadius.circular(16),
+            child: InkWell(
+              onTap: _resettingMetadata ? null : _handleResetMetadata,
+              borderRadius: BorderRadius.circular(16),
+              child: Padding(
+                padding:
+                    const EdgeInsets.symmetric(vertical: 8, horizontal: 4),
+                child: Row(
+                  children: [
+                  AnimatedRotation(
+                    turns: _resettingMetadata ? 1 : 0,
+                    duration: const Duration(milliseconds: 400),
+                    curve: Curves.easeOutBack,
+                    child: Icon(
+                      Icons.restart_alt,
+                      color: theme.colorScheme.primary,
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Reset upload metadata',
+                          style: theme.textTheme.bodyLarge?.copyWith(
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          'Clears synced photo markers so uploads can run again',
+                          style: theme.textTheme.bodyMedium?.copyWith(
+                            color: theme.colorScheme.onSurfaceVariant,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  AnimatedSwitcher(
+                    duration: const Duration(milliseconds: 300),
+                    switchInCurve: Curves.easeOutCubic,
+                    switchOutCurve: Curves.easeInCubic,
+                    child: _resettingMetadata
+                        ? const SizedBox(
+                            key: ValueKey('progress'),
+                            width: 24,
+                            height: 24,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                        : Icon(
+                            Icons.keyboard_arrow_right,
+                            key: ValueKey('arrow'),
+                            color: theme.colorScheme.onSurfaceVariant,
+                          ),
+                  ),
+                  ],
+                ),
+              ),
             ),
           ),
         ],
@@ -392,37 +553,47 @@ class _SettingsPageState extends State<SettingsPage> {
               ),
             )
           else ...[
-            for (final job in displayedJobs)
-              _UploadJobRow(
-                job: job,
-                onCancel: job.status == UploadJobStatus.queued
-                    ? () => _uploadQueue.cancelJob(job.assetId)
-                    : null,
+            AnimatedSize(
+              duration: const Duration(milliseconds: 320),
+              curve: Curves.easeOutCubic,
+              child: Column(
+                children: [
+                  for (final job in displayedJobs)
+                    _UploadJobRow(
+                      key: ValueKey(job.assetId),
+                      job: job,
+                      onCancel: job.status == UploadJobStatus.queued
+                          ? () => _uploadQueue.cancelJob(job.assetId)
+                          : null,
+                    ),
+                ],
               ),
-            if (hasMore)
-              Align(
-                alignment: Alignment.centerRight,
-                child: TextButton(
-                  onPressed: () {
-                    setState(() {
-                      _showAllUploads = true;
-                    });
-                  },
-                  child: Text('Show all (${jobs.length})'),
-                ),
-              ),
-            if (showLess)
-              Align(
-                alignment: Alignment.centerRight,
-                child: TextButton(
-                  onPressed: () {
-                    setState(() {
-                      _showAllUploads = false;
-                    });
-                  },
-                  child: const Text('Show less'),
-                ),
-              ),
+            ),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                if (hasMore)
+                  TextButton.icon(
+                    onPressed: () {
+                      setState(() {
+                        _showAllUploads = true;
+                      });
+                    },
+                    icon: const Icon(Icons.expand_more),
+                    label: Text('Show all (${jobs.length})'),
+                  ),
+                if (showLess)
+                  TextButton.icon(
+                    onPressed: () {
+                      setState(() {
+                        _showAllUploads = false;
+                      });
+                    },
+                    icon: const Icon(Icons.expand_less),
+                    label: const Text('Show less'),
+                  ),
+              ],
+            ),
           ],
           if (hasFinished)
             Align(
@@ -479,18 +650,33 @@ class _SettingsPageState extends State<SettingsPage> {
             backgroundColor: theme.colorScheme.error,
             foregroundColor: theme.colorScheme.onError,
             padding: const EdgeInsets.symmetric(vertical: 14),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(16),
+            ),
           ),
-          icon: _processingLogout
-              ? const SizedBox(
-                  height: 16,
-                  width: 16,
-                  child: CircularProgressIndicator(
-                    strokeWidth: 2,
-                    valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
-                  ),
-                )
-              : const Icon(Icons.logout),
-          label: Text(_processingLogout ? 'Signing out...' : 'Sign out'),
+          icon: AnimatedSwitcher(
+            duration: const Duration(milliseconds: 280),
+            switchInCurve: Curves.easeOutCubic,
+            switchOutCurve: Curves.easeInCubic,
+            child: _processingLogout
+                ? const SizedBox(
+                    key: ValueKey('logout-progress'),
+                    height: 18,
+                    width: 18,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2,
+                      valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                    ),
+                  )
+                : const Icon(Icons.logout, key: ValueKey('logout-icon')),
+          ),
+          label: AnimatedSwitcher(
+            duration: const Duration(milliseconds: 280),
+            child: Text(
+              _processingLogout ? 'Signing out...' : 'Sign out',
+              key: ValueKey(_processingLogout),
+            ),
+          ),
         ),
       ),
     );
@@ -498,7 +684,7 @@ class _SettingsPageState extends State<SettingsPage> {
 }
 
 class _UploadJobRow extends StatelessWidget {
-  const _UploadJobRow({required this.job, this.onCancel});
+  const _UploadJobRow({super.key, required this.job, this.onCancel});
 
   final UploadJob job;
   final VoidCallback? onCancel;
@@ -512,35 +698,66 @@ class _UploadJobRow extends StatelessWidget {
 
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 8),
-      child: Row(
-        children: [
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  job.fileName,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: theme.textTheme.bodyLarge?.copyWith(
-                    fontWeight: FontWeight.w600,
+      child: DecoratedBox(
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(16),
+          color: theme.colorScheme.surfaceVariant.withOpacity(0.35),
+        ),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+          child: Row(
+            children: [
+              AnimatedScale(
+                duration: const Duration(milliseconds: 280),
+                scale: job.status == UploadJobStatus.uploading ? 1.05 : 1,
+                child: AnimatedSwitcher(
+                  duration: const Duration(milliseconds: 280),
+                  child: IconTheme(
+                    key: ValueKey(job.status),
+                    data: IconThemeData(color: statusColor, size: 28),
+                    child: trailing,
                   ),
                 ),
-                const SizedBox(height: 4),
-                Text(
-                  status,
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
-                  style: theme.textTheme.bodyMedium?.copyWith(
-                    color: statusColor,
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      job.fileName,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: theme.textTheme.bodyMedium?.copyWith(
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      status,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        color: statusColor,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 12),
+              if (onCancel != null)
+                FilledButton.tonalIcon(
+                  onPressed: onCancel,
+                  icon: const Icon(Icons.close),
+                  label: const Text('Cancel'),
+                  style: FilledButton.styleFrom(
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                   ),
                 ),
-              ],
-            ),
+            ],
           ),
-          const SizedBox(width: 12),
-          trailing,
-        ],
+        ),
       ),
     );
   }
@@ -558,14 +775,7 @@ class _UploadJobRow extends StatelessWidget {
         );
       case UploadJobStatus.queued:
         if (onCancel != null) {
-          return TextButton.icon(
-            onPressed: onCancel,
-            icon: const Icon(Icons.cancel_outlined, size: 18),
-            label: const Text('Cancel'),
-            style: TextButton.styleFrom(
-              foregroundColor: theme.colorScheme.error,
-            ),
-          );
+          return const Icon(Icons.schedule_outlined);
         }
         return Icon(
           Icons.schedule,
@@ -670,27 +880,159 @@ class _SectionCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    return Card(
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-      elevation: 0,
-      color: theme.colorScheme.surfaceContainerHighest.withOpacity(0.45),
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              title,
-              style: theme.textTheme.titleSmall?.copyWith(
-                fontWeight: FontWeight.w600,
-                color: theme.colorScheme.onSurfaceVariant,
-              ),
-            ),
-            const SizedBox(height: 12),
-            child,
-          ],
+    return AnimatedContainer(
+      duration: const Duration(milliseconds: 360),
+      curve: Curves.easeOutCubic,
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(24),
+        color: theme.colorScheme.surface.withOpacity(0.82),
+        border: Border.all(
+          color: theme.colorScheme.outlineVariant.withOpacity(0.25),
         ),
+        boxShadow: [
+          BoxShadow(
+            color: theme.colorScheme.shadow.withOpacity(0.08),
+            blurRadius: 24,
+            offset: const Offset(0, 12),
+          ),
+        ],
+      ),
+      padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 18),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            title,
+            style: theme.textTheme.titleSmall?.copyWith(
+              fontWeight: FontWeight.w700,
+              color: theme.colorScheme.onSurface,
+              letterSpacing: 0.3,
+            ),
+          ),
+          const SizedBox(height: 12),
+          child,
+        ],
       ),
     );
+  }
+}
+
+class _LoadingIndicator extends StatelessWidget {
+  const _LoadingIndicator();
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 24),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          SizedBox(
+            width: 24,
+            height: 24,
+            child: CircularProgressIndicator(
+              strokeWidth: 2.5,
+              valueColor: AlwaysStoppedAnimation<Color>(
+                theme.colorScheme.primary,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _AnimatedPreferenceTile extends StatelessWidget {
+  const _AnimatedPreferenceTile({required this.child, required this.isActive});
+
+  final Widget child;
+  final bool isActive;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final activeColor = theme.colorScheme.primary.withOpacity(0.12);
+    final inactiveColor = theme.colorScheme.surfaceVariant.withOpacity(0.2);
+    return AnimatedContainer(
+      duration: const Duration(milliseconds: 320),
+      curve: Curves.easeOutCubic,
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(20),
+        color: isActive ? activeColor : inactiveColor,
+        border: Border.all(
+          color: isActive
+              ? theme.colorScheme.primary.withOpacity(0.45)
+              : Colors.transparent,
+        ),
+      ),
+      padding: const EdgeInsets.symmetric(horizontal: 12),
+      child: child,
+    );
+  }
+}
+
+class _AnimatedAvatar extends StatelessWidget {
+  const _AnimatedAvatar({this.name});
+
+  final String? name;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final initials = _initialsFromName(name);
+    return TweenAnimationBuilder<double>(
+      duration: const Duration(milliseconds: 520),
+      curve: Curves.easeOutBack,
+      tween: Tween(begin: 0.8, end: 1),
+      child: DecoratedBox(
+        decoration: BoxDecoration(
+          shape: BoxShape.circle,
+          gradient: LinearGradient(
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+            colors: [
+              theme.colorScheme.primary,
+              theme.colorScheme.secondary,
+            ],
+          ),
+        ),
+        child: CircleAvatar(
+          backgroundColor: Colors.transparent,
+          radius: 28,
+          child: Text(
+            initials,
+            style: theme.textTheme.titleMedium?.copyWith(
+              color: theme.colorScheme.onPrimary,
+              fontWeight: FontWeight.bold,
+              letterSpacing: 0.4,
+            ),
+          ),
+        ),
+      ),
+      builder: (context, value, child) => Transform.scale(
+        scale: value,
+        child: child,
+      ),
+    );
+  }
+
+  String _initialsFromName(String? raw) {
+    if (raw == null || raw.trim().isEmpty) {
+      return '👤';
+    }
+    final parts = raw.trim().split(RegExp(r'\s+'));
+    if (parts.length == 1) {
+      final segment = parts.first;
+      final length = math.min(2, segment.length);
+      return segment.substring(0, length).toUpperCase();
+    }
+    final first = parts.first;
+    final last = parts.last;
+    final firstChar = first.isNotEmpty ? first[0] : '';
+    final lastChar = last.isNotEmpty ? last[0] : '';
+    final combined = (firstChar + lastChar).trim();
+    return combined.isEmpty ? parts.first.substring(0, 1).toUpperCase() : combined.toUpperCase();
   }
 }
