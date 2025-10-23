@@ -26,8 +26,12 @@ class GalleryPage extends StatefulWidget {
   State<GalleryPage> createState() => _GalleryPageState();
 }
 
-class _GalleryPageState extends State<GalleryPage> {
+class _GalleryPageState extends State<GalleryPage>
+    with SingleTickerProviderStateMixin {
   static const int _pageSize = 60;
+  static const Duration _microAnimationDuration = Duration(milliseconds: 220);
+  static const Curve _microAnimationCurve = Curves.easeOutCubic;
+  static const Duration _sectionStaggerDelay = Duration(milliseconds: 45);
   static final List<_BulkSelectPreset> _bulkPresets = [
     _BulkSelectPreset(
       label: 'Today',
@@ -80,10 +84,15 @@ class _GalleryPageState extends State<GalleryPage> {
   int _nextPage = 0;
 
   late final ScrollController _scrollController;
+  late final AnimationController _backgroundController;
 
   @override
   void initState() {
     super.initState();
+    _backgroundController = AnimationController(
+      vsync: this,
+      duration: const Duration(seconds: 18),
+    )..repeat(reverse: true);
     _uploadQueue = galleryUploadQueue;
     _uploadQueueListener = _handleUploadQueueChange;
     _uploadQueue.addListener(_uploadQueueListener!);
@@ -98,6 +107,7 @@ class _GalleryPageState extends State<GalleryPage> {
       _uploadQueue.removeListener(_uploadQueueListener!);
       _uploadQueueListener = null;
     }
+    _backgroundController.dispose();
     _scrollController.removeListener(_onScroll);
     _scrollController.dispose();
     super.dispose();
@@ -846,38 +856,62 @@ class _GalleryPageState extends State<GalleryPage> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final selectionActions = _buildSelectionActions(theme);
+    final selectionPanel = _buildSelectionActions(theme);
+    final queuedCount = _uploadQueue.jobs.length;
 
-    return PopScope(
-      canPop: !_selectionMode,
-      onPopInvokedWithResult: (didPop, _) {
-        if (didPop) {
-          return;
-        }
-        if (_selectionMode) {
-          _clearSelection();
-        }
+    return AnimatedBuilder(
+      animation: _backgroundController,
+      builder: (context, child) {
+        final curvedProgress = CurvedAnimation(
+          parent: _backgroundController,
+          curve: Curves.easeInOut,
+        ).value;
+
+        final gradient = LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [
+            Color.lerp(
+              theme.colorScheme.surface,
+              theme.colorScheme.primaryContainer.withOpacity(0.85),
+              curvedProgress * 0.6,
+            )!,
+            Color.lerp(
+              theme.colorScheme.surface,
+              theme.colorScheme.secondaryContainer.withOpacity(0.8),
+              0.35 + (curvedProgress * 0.65),
+            )!,
+          ],
+        );
+
+        return DecoratedBox(
+          decoration: BoxDecoration(gradient: gradient),
+          child: child,
+        );
       },
-      child: Scaffold(
-        backgroundColor: theme.colorScheme.surfaceContainerLowest,
-        body: Container(
-          decoration: BoxDecoration(
-            gradient: LinearGradient(
-              colors: [
-                theme.colorScheme.primary.withOpacity(0.06),
-                theme.colorScheme.surfaceContainerHigh,
-                theme.colorScheme.surface,
-              ],
-              begin: Alignment.topCenter,
-              end: Alignment.bottomCenter,
-            ),
-          ),
-          child: SafeArea(
+      child: PopScope(
+        canPop: !_selectionMode,
+        onPopInvokedWithResult: (didPop, _) {
+          if (didPop) {
+            return;
+          }
+          if (_selectionMode) {
+            _clearSelection();
+          }
+        },
+        child: Scaffold(
+          backgroundColor: Colors.transparent,
+          extendBody: true,
+          body: SafeArea(
             child: GalleryRefreshIndicator(
               onRefresh: _handleRefresh,
               child: CustomScrollView(
                 controller: _scrollController,
-                physics: const AlwaysScrollableScrollPhysics(),
+                physics: const BouncingScrollPhysics(
+                  parent: AlwaysScrollableScrollPhysics(),
+                ),
+                keyboardDismissBehavior:
+                    ScrollViewKeyboardDismissBehavior.onDrag,
                 slivers: [
                   SliverAppBar(
                     expandedHeight: 240,
@@ -887,9 +921,8 @@ class _GalleryPageState extends State<GalleryPage> {
                     automaticallyImplyLeading: false,
                     flexibleSpace: LayoutBuilder(
                       builder: (context, constraints) {
-                        final highlight = _assets.isNotEmpty
-                            ? _assets.first
-                            : null;
+                        final highlight =
+                            _assets.isNotEmpty ? _assets.first : null;
                         final title = _selectionMode
                             ? '${_selectedAssetIds.length} selected'
                             : 'Gallery';
@@ -915,7 +948,7 @@ class _GalleryPageState extends State<GalleryPage> {
                                   children: [
                                     const Spacer(),
                                     if (_hasActiveUploads) ...[
-                                    const _GalleryGlassProgressIndicator(),
+                                      const _GalleryGlassProgressIndicator(),
                                       const SizedBox(width: 12),
                                     ],
                                     if (_selectionMode) ...[
@@ -944,7 +977,7 @@ class _GalleryPageState extends State<GalleryPage> {
                                             ? null
                                             : _clearSelection,
                                       ),
-                                    ] else
+                                    ] else ...[
                                       _GalleryGlassIconButton(
                                         icon: Icons.refresh,
                                         tooltip: 'Refresh',
@@ -952,6 +985,7 @@ class _GalleryPageState extends State<GalleryPage> {
                                             ? null
                                             : () => _handleRefresh(),
                                       ),
+                                    ],
                                   ],
                                 ),
                               ),
@@ -961,29 +995,48 @@ class _GalleryPageState extends State<GalleryPage> {
                       },
                     ),
                   ),
-                  if (selectionActions != null) selectionActions,
-                  SliverPadding(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 20,
-                      vertical: 16,
-                    ),
-                    sliver: _buildContent(theme),
-                  ),
-                  if (_isLoadingMore)
-                    const SliverToBoxAdapter(
-                      child: Padding(
-                        padding: EdgeInsets.only(bottom: 24),
-                        child: Center(
-                          child: SizedBox(
-                            height: 24,
-                            width: 24,
-                            child: CircularProgressIndicator(strokeWidth: 2.5),
-                          ),
+                  if (_hasPermission)
+                    SliverPadding(
+                      padding: const EdgeInsets.fromLTRB(24, 20, 24, 12),
+                      sliver: SliverToBoxAdapter(
+                        child: _GalleryMetricsChips(
+                          totalCount: _assets.length,
+                          uploadingCount: _uploadingAssetIds.length,
+                          failedCount: _failedUploadAssetIds.length,
+                          selectionCount: _selectedAssetIds.length,
+                          queuedCount: queuedCount,
+                          selectionMode: _selectionMode,
+                          animationDuration: _microAnimationDuration,
+                          animationCurve: _microAnimationCurve,
                         ),
                       ),
-                    )
-                  else if (!_isLoading && !_hasMore && _assets.isNotEmpty)
-                    const SliverToBoxAdapter(child: SizedBox(height: 24)),
+                    ),
+                  if (_hasPermission)
+                    SliverPadding(
+                      padding: const EdgeInsets.fromLTRB(24, 0, 24, 4),
+                      sliver: SliverToBoxAdapter(
+                        child: AnimatedSwitcher(
+                          duration: _microAnimationDuration,
+                          switchInCurve: _microAnimationCurve,
+                          switchOutCurve: Curves.easeInCubic,
+                          child: selectionPanel ??
+                              const SizedBox.shrink(key: ValueKey('no-actions')),
+                        ),
+                      ),
+                    ),
+                  SliverPadding(
+                    padding: const EdgeInsets.fromLTRB(20, 16, 20, 24),
+                    sliver: _buildContent(theme),
+                  ),
+                  if (_hasPermission)
+                    SliverToBoxAdapter(
+                      child: AnimatedSwitcher(
+                        duration: _microAnimationDuration,
+                        switchInCurve: _microAnimationCurve,
+                        switchOutCurve: Curves.easeInCubic,
+                        child: _buildLoadMoreIndicator(),
+                      ),
+                    ),
                 ],
               ),
             ),
@@ -1019,6 +1072,9 @@ class _GalleryPageState extends State<GalleryPage> {
       hideSelectionIndicatorAssetIds: _selectionMode && _assets.isNotEmpty
           ? {_assets.first.id}
           : const <String>{},
+      animationDuration: _microAnimationDuration,
+      animationCurve: _microAnimationCurve,
+      sectionStaggerDelay: _sectionStaggerDelay,
       onAssetTap: _handleAssetTap,
       onAssetLongPress: _handleAssetLongPress,
       onAssetLongPressStart: _handleAssetLongPressStart,
@@ -1028,7 +1084,7 @@ class _GalleryPageState extends State<GalleryPage> {
     );
   }
 
-  SliverToBoxAdapter? _buildSelectionActions(ThemeData theme) {
+  Widget? _buildSelectionActions(ThemeData theme) {
     if (!_selectionMode) {
       return null;
     }
@@ -1036,20 +1092,23 @@ class _GalleryPageState extends State<GalleryPage> {
     final canRetry =
         _selectedAssetIds.any((id) => _failedUploadAssetIds.contains(id));
 
-    return SliverToBoxAdapter(
-      child: Padding(
-        padding: const EdgeInsets.fromLTRB(20, 16, 20, 8),
+    return KeyedSubtree(
+      key: const ValueKey('selection-actions'),
+      child: _GallerySectionContainer(
+        animationDuration: _microAnimationDuration,
+        animationCurve: _microAnimationCurve,
+        highlight: true,
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
-              'Quick select',
+              'Bulk tools',
               style: theme.textTheme.titleMedium?.copyWith(
                 fontWeight: FontWeight.w700,
                 letterSpacing: 0.1,
               ),
             ),
-            const SizedBox(height: 8),
+            const SizedBox(height: 12),
             Wrap(
               spacing: 8,
               runSpacing: 8,
@@ -1067,7 +1126,7 @@ class _GalleryPageState extends State<GalleryPage> {
                   )
                   .toList(),
             ),
-            const SizedBox(height: 18),
+            const SizedBox(height: 20),
             Wrap(
               spacing: 12,
               runSpacing: 12,
@@ -1092,6 +1151,33 @@ class _GalleryPageState extends State<GalleryPage> {
         ),
       ),
     );
+  }
+
+  Widget _buildLoadMoreIndicator() {
+    if (_isLoadingMore) {
+      return const Padding(
+        key: ValueKey('loading-more'),
+        padding: EdgeInsets.only(bottom: 32),
+        child: Center(
+          child: SizedBox(
+            height: 24,
+            width: 24,
+            child: CircularProgressIndicator(strokeWidth: 2.5),
+          ),
+        ),
+      );
+    }
+
+    final showEndOfList = !_isLoading && !_hasMore && _assets.isNotEmpty;
+    if (showEndOfList) {
+      return const Padding(
+        key: ValueKey('end-of-list'),
+        padding: EdgeInsets.only(bottom: 32),
+        child: _GalleryEndOfListMessage(),
+      );
+    }
+
+    return const SizedBox.shrink(key: ValueKey('idle-load-state'));
   }
 
   static _DateRange _computeTodayRange(DateTime now) {
@@ -1232,6 +1318,277 @@ class _GalleryPageState extends State<GalleryPage> {
     'Nov',
     'Dec',
   ];
+}
+
+class _GalleryMetricsChips extends StatelessWidget {
+  const _GalleryMetricsChips({
+    required this.totalCount,
+    required this.selectionCount,
+    required this.uploadingCount,
+    required this.failedCount,
+    required this.queuedCount,
+    required this.selectionMode,
+    required this.animationDuration,
+    required this.animationCurve,
+  });
+
+  final int totalCount;
+  final int selectionCount;
+  final int uploadingCount;
+  final int failedCount;
+  final int queuedCount;
+  final bool selectionMode;
+  final Duration animationDuration;
+  final Curve animationCurve;
+
+  @override
+  Widget build(BuildContext context) {
+    return _GallerySectionContainer(
+      animationDuration: animationDuration,
+      animationCurve: animationCurve,
+      highlight: selectionMode,
+      child: Wrap(
+        spacing: 12,
+        runSpacing: 12,
+        children: [
+          _GalleryMetricChip(
+            icon: Icons.photo_library_outlined,
+            label: 'Total photos',
+            value: totalCount,
+            animationDuration: animationDuration,
+            animationCurve: animationCurve,
+            emphasize: true,
+          ),
+          _GalleryMetricChip(
+            icon: Icons.check_circle_outline,
+            label: 'Selected',
+            value: selectionCount,
+            animationDuration: animationDuration,
+            animationCurve: animationCurve,
+            highlightWhenActive: true,
+          ),
+          _GalleryMetricChip(
+            icon: Icons.cloud_upload_outlined,
+            label: 'Uploading',
+            value: uploadingCount,
+            animationDuration: animationDuration,
+            animationCurve: animationCurve,
+            highlightWhenActive: true,
+          ),
+          _GalleryMetricChip(
+            icon: Icons.error_outline,
+            label: 'Failed',
+            value: failedCount,
+            animationDuration: animationDuration,
+            animationCurve: animationCurve,
+            highlightWhenActive: true,
+          ),
+          _GalleryMetricChip(
+            icon: Icons.queue_outlined,
+            label: 'Queued',
+            value: queuedCount,
+            animationDuration: animationDuration,
+            animationCurve: animationCurve,
+            highlightWhenActive: true,
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _GalleryMetricChip extends StatelessWidget {
+  const _GalleryMetricChip({
+    required this.icon,
+    required this.label,
+    required this.value,
+    required this.animationDuration,
+    required this.animationCurve,
+    this.emphasize = false,
+    this.highlightWhenActive = false,
+  });
+
+  final IconData icon;
+  final String label;
+  final int value;
+  final Duration animationDuration;
+  final Curve animationCurve;
+  final bool emphasize;
+  final bool highlightWhenActive;
+
+  String get _formattedValue {
+    if (value >= 1000) {
+      final double inThousands = value / 1000.0;
+      if (value >= 10000) {
+        return '${inThousands.toStringAsFixed(0)}K';
+      }
+      return '${inThousands.toStringAsFixed(1)}K';
+    }
+    return value.toString();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
+    final isActive = highlightWhenActive && value > 0;
+
+    final baseColor = colorScheme.surfaceVariant.withOpacity(0.38);
+    final highlightColor = colorScheme.primaryContainer.withOpacity(0.78);
+    final background = emphasize
+        ? Color.lerp(baseColor, highlightColor, 0.35) ?? highlightColor
+        : isActive
+            ? Color.lerp(baseColor, highlightColor, 0.45) ?? highlightColor
+            : baseColor;
+
+    final borderColor = isActive || emphasize
+        ? colorScheme.primary.withOpacity(0.28)
+        : colorScheme.outlineVariant.withOpacity(0.22);
+    final foreground = isActive || emphasize
+        ? colorScheme.onPrimaryContainer
+        : colorScheme.onSurfaceVariant.withOpacity(0.9);
+
+    return AnimatedContainer(
+      duration: animationDuration,
+      curve: animationCurve,
+      padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 12),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(22),
+        color: background,
+        border: Border.all(color: borderColor),
+        boxShadow: [
+          BoxShadow(
+            color: colorScheme.shadow
+                .withOpacity(isActive || emphasize ? 0.12 : 0.06),
+            blurRadius: isActive || emphasize ? 22 : 14,
+            offset: const Offset(0, 12),
+          ),
+        ],
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 20, color: foreground),
+          const SizedBox(width: 12),
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              AnimatedDefaultTextStyle(
+                duration: animationDuration,
+                curve: animationCurve,
+                style: theme.textTheme.titleMedium?.copyWith(
+                      color: foreground,
+                      fontWeight: FontWeight.w700,
+                    ) ??
+                    TextStyle(
+                      color: foreground,
+                      fontWeight: FontWeight.w700,
+                      fontSize: 18,
+                    ),
+                child: Text(_formattedValue),
+              ),
+              AnimatedDefaultTextStyle(
+                duration: animationDuration,
+                curve: animationCurve,
+                style: theme.textTheme.labelMedium?.copyWith(
+                      color: foreground.withOpacity(0.8),
+                      letterSpacing: 0.1,
+                    ) ??
+                    TextStyle(
+                      color: foreground.withOpacity(0.8),
+                      fontSize: 12,
+                    ),
+                child: Text(label),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _GallerySectionContainer extends StatelessWidget {
+  const _GallerySectionContainer({
+    required this.child,
+    required this.animationDuration,
+    required this.animationCurve,
+    this.highlight = false,
+  });
+
+  final Widget child;
+  final Duration animationDuration;
+  final Curve animationCurve;
+  final bool highlight;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final baseColor = theme.colorScheme.surface.withOpacity(0.82);
+    final highlightColor =
+        theme.colorScheme.primaryContainer.withOpacity(0.74);
+    final backgroundColor = highlight
+        ? Color.lerp(baseColor, highlightColor, 0.35) ?? highlightColor
+        : baseColor;
+
+    final borderColor = highlight
+        ? theme.colorScheme.primary.withOpacity(0.24)
+        : theme.colorScheme.outlineVariant.withOpacity(0.24);
+
+    return AnimatedContainer(
+      duration: animationDuration,
+      curve: animationCurve,
+      padding: const EdgeInsets.fromLTRB(22, 20, 22, 22),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(28),
+        color: backgroundColor,
+        border: Border.all(color: borderColor),
+        boxShadow: [
+          BoxShadow(
+            color: theme.colorScheme.shadow.withOpacity(0.08),
+            blurRadius: 26,
+            offset: const Offset(0, 14),
+          ),
+        ],
+      ),
+      child: child,
+    );
+  }
+}
+
+class _GalleryEndOfListMessage extends StatelessWidget {
+  const _GalleryEndOfListMessage();
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Icon(
+          Icons.auto_awesome_outlined,
+          size: 28,
+          color: theme.colorScheme.primary,
+        ),
+        const SizedBox(height: 8),
+        Text(
+          'You’ve reached the end',
+          style: theme.textTheme.bodyLarge?.copyWith(
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+        const SizedBox(height: 4),
+        Text(
+          'Add more memories or pull to refresh to keep things in sync.',
+          style: theme.textTheme.bodyMedium?.copyWith(
+            color: theme.colorScheme.onSurfaceVariant,
+          ),
+          textAlign: TextAlign.center,
+        ),
+      ],
+    );
+  }
 }
 
 class _GalleryGlassHeader extends StatelessWidget {
