@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
@@ -334,6 +335,7 @@ class _SettingsPageState extends State<SettingsPage>
     }
 
     final details = _userDetails;
+    final prettyDetails = _prettyPrintUserDetails(details);
     return _SectionCard(
       title: 'Account',
       child: Column(
@@ -370,6 +372,38 @@ class _SettingsPageState extends State<SettingsPage>
             label: 'Gender',
             value: _safeDisplay(details?.gender) ?? 'Not specified',
           ),
+          if (prettyDetails != null) ...[
+            const SizedBox(height: 20),
+            DecoratedBox(
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(12),
+                color: theme.colorScheme.surfaceVariant.withOpacity(0.35),
+              ),
+              child: Padding(
+                padding: const EdgeInsets.all(12),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'API response',
+                      style: theme.textTheme.labelMedium?.copyWith(
+                        color: theme.colorScheme.onSurfaceVariant,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    SelectableText(
+                      prettyDetails,
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        fontFamily: 'monospace',
+                        color: theme.colorScheme.onSurfaceVariant,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ],
         ],
       ),
     );
@@ -637,6 +671,27 @@ class _SettingsPageState extends State<SettingsPage>
     }
     final trimmed = value.trim();
     return trimmed.isEmpty ? null : trimmed;
+  }
+
+  String? _prettyPrintUserDetails(UserDetails? details) {
+    if (details == null) {
+      return null;
+    }
+    final rawJson = details.toJson()
+      ..removeWhere((key, value) {
+        if (value == null) {
+          return true;
+        }
+        if (value is String) {
+          return value.trim().isEmpty;
+        }
+        return false;
+      });
+    if (rawJson.isEmpty) {
+      return null;
+    }
+    const encoder = JsonEncoder.withIndent('  ');
+    return encoder.convert(rawJson);
   }
 
   Widget _buildLogoutSection(ThemeData theme) {
