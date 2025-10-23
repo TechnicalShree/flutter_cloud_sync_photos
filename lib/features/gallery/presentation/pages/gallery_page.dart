@@ -7,7 +7,7 @@ import 'package:flutter_cloud_sync_photos/core/navigation/shared_axis_page_route
 import 'package:flutter_cloud_sync_photos/core/network/api_exception.dart';
 import 'package:flutter_cloud_sync_photos/features/auth/data/services/auth_service.dart';
 import 'package:photo_manager/photo_manager.dart';
-import 'package:photo_manager_image_provider/photo_manager_image_provider.dart';
+import '../util/cached_thumbnail_image_provider.dart';
 
 import '../../data/services/upload_metadata_store.dart';
 import '../../data/services/gallery_upload_queue.dart';
@@ -1703,10 +1703,9 @@ class _GalleryHeaderBackground extends StatelessWidget {
     }
 
     return Image(
-      image: AssetEntityImageProvider(
+      image: CachedThumbnailImageProvider(
         asset!,
-        thumbnailSize: const ThumbnailSize.square(1200),
-        isOriginal: false,
+        size: const ThumbnailSize.square(1200),
       ),
       fit: BoxFit.cover,
     );

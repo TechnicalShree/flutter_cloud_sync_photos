@@ -3,7 +3,7 @@ import 'dart:ui';
 
 import 'package:flutter/material.dart';
 import 'package:photo_manager/photo_manager.dart';
-import 'package:photo_manager_image_provider/photo_manager_image_provider.dart';
+import '../../../gallery/presentation/util/cached_thumbnail_image_provider.dart';
 
 import '../../../gallery/data/services/upload_metadata_store.dart';
 import '../../../gallery/data/services/gallery_upload_queue.dart';
@@ -610,10 +610,9 @@ class _AlbumCover extends StatelessWidget {
       );
     } else {
       child = Image(
-        image: AssetEntityImageProvider(
+        image: CachedThumbnailImageProvider(
           cover!,
-          thumbnailSize: const ThumbnailSize.square(1200),
-          isOriginal: false,
+          size: const ThumbnailSize.square(1200),
         ),
         fit: BoxFit.cover,
       );
