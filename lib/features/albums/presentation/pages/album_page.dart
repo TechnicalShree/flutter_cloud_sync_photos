@@ -3,7 +3,7 @@ import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 import 'package:photo_manager/photo_manager.dart';
-import 'package:photo_manager_image_provider/photo_manager_image_provider.dart';
+import '../../../gallery/presentation/util/cached_thumbnail_image_provider.dart';
 
 import '../../../gallery/presentation/widgets/gallery_permission_prompt.dart';
 import '../widgets/album_empty_state.dart';
@@ -715,10 +715,9 @@ class _AlbumTileState extends State<_AlbumTile> {
     } else {
       coverContent = Image(
         key: ValueKey(widget.album.cover?.id ?? widget.album.id),
-        image: AssetEntityImageProvider(
+        image: CachedThumbnailImageProvider(
           widget.album.cover!,
-          thumbnailSize: const ThumbnailSize.square(600),
-          isOriginal: false,
+          size: const ThumbnailSize.square(600),
         ),
         fit: BoxFit.cover,
       );

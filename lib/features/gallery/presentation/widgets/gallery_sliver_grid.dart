@@ -2,7 +2,7 @@ import 'dart:ui';
 
 import 'package:flutter/material.dart';
 import 'package:photo_manager/photo_manager.dart';
-import 'package:photo_manager_image_provider/photo_manager_image_provider.dart';
+import '../util/cached_thumbnail_image_provider.dart';
 
 import '../../data/services/upload_metadata_store.dart';
 import 'gallery_selection_hit_target.dart';
@@ -317,10 +317,9 @@ class _GalleryTileState extends State<GalleryTile> {
                             tag: widget.asset.id,
                             transitionOnUserGestures: true,
                             child: Image(
-                              image: AssetEntityImageProvider(
+                              image: CachedThumbnailImageProvider(
                                 widget.asset,
-                                isOriginal: false,
-                                thumbnailSize: const ThumbnailSize.square(400),
+                                size: const ThumbnailSize.square(400),
                               ),
                               fit: BoxFit.cover,
                             ),

@@ -7,7 +7,7 @@ import 'package:flutter_cloud_sync_photos/core/navigation/shared_axis_page_route
 import 'package:flutter_cloud_sync_photos/core/network/api_exception.dart';
 import 'package:flutter_cloud_sync_photos/features/auth/data/services/auth_service.dart';
 import 'package:photo_manager/photo_manager.dart';
-import 'package:photo_manager_image_provider/photo_manager_image_provider.dart';
+import '../util/cached_thumbnail_image_provider.dart';
 
 import '../../data/services/upload_metadata_store.dart';
 import '../../data/services/gallery_upload_queue.dart';
@@ -255,9 +255,7 @@ class _GalleryPageState extends State<GalleryPage>
           _selectedAssets[id] = asset;
         }
       }
-      _selectedAssets.removeWhere(
-        (id, _) => !_selectedAssetIds.contains(id),
-      );
+      _selectedAssets.removeWhere((id, _) => !_selectedAssetIds.contains(id));
       if (_selectedAssetIds.isEmpty) {
         _selectionMode = false;
       }
@@ -306,11 +304,9 @@ class _GalleryPageState extends State<GalleryPage>
       return;
     }
 
-    Navigator.of(context).push(
-      SharedAxisPageRoute(
-        builder: (_) => PhotoDetailPage(asset: asset),
-      ),
-    );
+    Navigator.of(
+      context,
+    ).push(SharedAxisPageRoute(builder: (_) => PhotoDetailPage(asset: asset)));
   }
 
   void _handleAssetLongPress(AssetEntity asset) {
@@ -456,10 +452,9 @@ class _GalleryPageState extends State<GalleryPage>
 
   Future<void> _uploadAsset(AssetEntity asset) async {
     final messenger = ScaffoldMessenger.of(context);
-    final summary = await _uploadQueue.enqueueAssets(
-      [asset],
-      fallbackAlbumName: _assetPath?.name,
-    );
+    final summary = await _uploadQueue.enqueueAssets([
+      asset,
+    ], fallbackAlbumName: _assetPath?.name);
 
     if (!mounted) {
       return;
@@ -558,7 +553,9 @@ class _GalleryPageState extends State<GalleryPage>
       if (assets.isEmpty) {
         messenger.hideCurrentSnackBar();
         messenger.showSnackBar(
-          SnackBar(content: Text('No photos found for ${preset.label.toLowerCase()}')),
+          SnackBar(
+            content: Text('No photos found for ${preset.label.toLowerCase()}'),
+          ),
         );
         return;
       }
@@ -583,7 +580,11 @@ class _GalleryPageState extends State<GalleryPage>
           ? '${assets.length}'
           : '${assets.length} (+$newlyAdded new)';
       messenger.showSnackBar(
-        SnackBar(content: Text('Selected $countLabel from ${preset.label.toLowerCase()}')),
+        SnackBar(
+          content: Text(
+            'Selected $countLabel from ${preset.label.toLowerCase()}',
+          ),
+        ),
       );
     } catch (error) {
       if (!mounted) {
@@ -591,7 +592,9 @@ class _GalleryPageState extends State<GalleryPage>
       }
       messenger.hideCurrentSnackBar();
       messenger.showSnackBar(
-        SnackBar(content: Text('Failed to select ${preset.label.toLowerCase()}')),
+        SnackBar(
+          content: Text('Failed to select ${preset.label.toLowerCase()}'),
+        ),
       );
     } finally {
       if (mounted) {
@@ -607,13 +610,8 @@ class _GalleryPageState extends State<GalleryPage>
     DateTime end,
   ) async {
     final filter = FilterOptionGroup(
-      createTimeCond: DateTimeCond(
-        min: start,
-        max: end,
-      ),
-      orders: const [
-        OrderOption(type: OrderOptionType.createDate, asc: false),
-      ],
+      createTimeCond: DateTimeCond(min: start, max: end),
+      orders: const [OrderOption(type: OrderOptionType.createDate, asc: false)],
     );
 
     final paths = await PhotoManager.getAssetPathList(
@@ -783,8 +781,9 @@ class _GalleryPageState extends State<GalleryPage>
       });
     }
 
-    final hasRetryTargets =
-        _selectedAssetIds.any(_failedUploadAssetIds.contains);
+    final hasRetryTargets = _selectedAssetIds.any(
+      _failedUploadAssetIds.contains,
+    );
 
     final action = await showModalBottomSheet<_SelectionAction>(
       context: context,
@@ -811,9 +810,9 @@ class _GalleryPageState extends State<GalleryPage>
                   title: Text(preset.label),
                   subtitle: Text(preset.description),
                   enabled: !_isProcessingSelectionAction,
-                  onTap: () => Navigator.of(context).pop(
-                    _SelectionActionSelectPreset(preset),
-                  ),
+                  onTap: () => Navigator.of(
+                    context,
+                  ).pop(_SelectionActionSelectPreset(preset)),
                 ),
               ),
               const Divider(),
@@ -821,17 +820,17 @@ class _GalleryPageState extends State<GalleryPage>
                 leading: const Icon(Icons.cloud_off),
                 title: const Text('Remove from sync'),
                 enabled: !_isProcessingSelectionAction,
-                onTap: () => Navigator.of(context).pop(
-                  const _SelectionActionRemoveFromSync(),
-                ),
+                onTap: () => Navigator.of(
+                  context,
+                ).pop(const _SelectionActionRemoveFromSync()),
               ),
               ListTile(
                 leading: const Icon(Icons.refresh),
                 title: const Text('Retry failed uploads'),
                 enabled: !_isProcessingSelectionAction && hasRetryTargets,
-                onTap: () => Navigator.of(context).pop(
-                  const _SelectionActionRetryFailed(),
-                ),
+                onTap: () => Navigator.of(
+                  context,
+                ).pop(const _SelectionActionRetryFailed()),
               ),
               const SizedBox(height: 16),
             ],
@@ -921,8 +920,9 @@ class _GalleryPageState extends State<GalleryPage>
                     automaticallyImplyLeading: false,
                     flexibleSpace: LayoutBuilder(
                       builder: (context, constraints) {
-                        final highlight =
-                            _assets.isNotEmpty ? _assets.first : null;
+                        final highlight = _assets.isNotEmpty
+                            ? _assets.first
+                            : null;
                         final title = _selectionMode
                             ? '${_selectedAssetIds.length} selected'
                             : 'Gallery';
@@ -965,9 +965,9 @@ class _GalleryPageState extends State<GalleryPage>
                                         tooltip: 'Upload selected',
                                         onPressed:
                                             _selectedAssetIds.isEmpty ||
-                                                    _isProcessingSelectionAction
-                                                ? null
-                                                : () => _uploadSelectedAssets(),
+                                                _isProcessingSelectionAction
+                                            ? null
+                                            : () => _uploadSelectedAssets(),
                                       ),
                                       const SizedBox(width: 12),
                                       _GalleryGlassIconButton(
@@ -995,22 +995,22 @@ class _GalleryPageState extends State<GalleryPage>
                       },
                     ),
                   ),
-                  if (_hasPermission)
-                    SliverPadding(
-                      padding: const EdgeInsets.fromLTRB(24, 20, 24, 12),
-                      sliver: SliverToBoxAdapter(
-                        child: _GalleryMetricsChips(
-                          totalCount: _assets.length,
-                          uploadingCount: _uploadingAssetIds.length,
-                          failedCount: _failedUploadAssetIds.length,
-                          selectionCount: _selectedAssetIds.length,
-                          queuedCount: queuedCount,
-                          selectionMode: _selectionMode,
-                          animationDuration: _microAnimationDuration,
-                          animationCurve: _microAnimationCurve,
-                        ),
-                      ),
-                    ),
+                  // if (_hasPermission)
+                  //   SliverPadding(
+                  //     padding: const EdgeInsets.fromLTRB(24, 20, 24, 12),
+                  //     sliver: SliverToBoxAdapter(
+                  //       child: _GalleryMetricsChips(
+                  //         totalCount: _assets.length,
+                  //         uploadingCount: _uploadingAssetIds.length,
+                  //         failedCount: _failedUploadAssetIds.length,
+                  //         selectionCount: _selectedAssetIds.length,
+                  //         queuedCount: queuedCount,
+                  //         selectionMode: _selectionMode,
+                  //         animationDuration: _microAnimationDuration,
+                  //         animationCurve: _microAnimationCurve,
+                  //       ),
+                  //     ),
+                  //   ),
                   if (_hasPermission)
                     SliverPadding(
                       padding: const EdgeInsets.fromLTRB(24, 0, 24, 4),
@@ -1019,8 +1019,11 @@ class _GalleryPageState extends State<GalleryPage>
                           duration: _microAnimationDuration,
                           switchInCurve: _microAnimationCurve,
                           switchOutCurve: Curves.easeInCubic,
-                          child: selectionPanel ??
-                              const SizedBox.shrink(key: ValueKey('no-actions')),
+                          child:
+                              selectionPanel ??
+                              const SizedBox.shrink(
+                                key: ValueKey('no-actions'),
+                              ),
                         ),
                       ),
                     ),
@@ -1087,8 +1090,9 @@ class _GalleryPageState extends State<GalleryPage>
       return null;
     }
 
-    final canRetry =
-        _selectedAssetIds.any((id) => _failedUploadAssetIds.contains(id));
+    final canRetry = _selectedAssetIds.any(
+      (id) => _failedUploadAssetIds.contains(id),
+    );
 
     return KeyedSubtree(
       key: const ValueKey('selection-actions'),
@@ -1180,37 +1184,25 @@ class _GalleryPageState extends State<GalleryPage>
 
   static _DateRange _computeTodayRange(DateTime now) {
     final localNow = now.toLocal();
-    return _DateRange(
-      _startOfDay(localNow),
-      _endOfDay(localNow),
-    );
+    return _DateRange(_startOfDay(localNow), _endOfDay(localNow));
   }
 
   static _DateRange _computeYesterdayRange(DateTime now) {
     final localNow = now.toLocal();
     final yesterday = localNow.subtract(const Duration(days: 1));
-    return _DateRange(
-      _startOfDay(yesterday),
-      _endOfDay(yesterday),
-    );
+    return _DateRange(_startOfDay(yesterday), _endOfDay(yesterday));
   }
 
   static _DateRange _computeLast7DaysRange(DateTime now) {
     final localNow = now.toLocal();
     final start = localNow.subtract(const Duration(days: 6));
-    return _DateRange(
-      _startOfDay(start),
-      _endOfDay(localNow),
-    );
+    return _DateRange(_startOfDay(start), _endOfDay(localNow));
   }
 
   static _DateRange _computeThisMonthRange(DateTime now) {
     final localNow = now.toLocal();
     final start = DateTime(localNow.year, localNow.month, 1);
-    return _DateRange(
-      _startOfDay(start),
-      _endOfDay(_endOfMonth(localNow)),
-    );
+    return _DateRange(_startOfDay(start), _endOfDay(_endOfMonth(localNow)));
   }
 
   static _DateRange _computeLastMonthRange(DateTime now) {
@@ -1218,24 +1210,14 @@ class _GalleryPageState extends State<GalleryPage>
     final firstDayThisMonth = DateTime(localNow.year, localNow.month, 1);
     final lastMonthEnd = firstDayThisMonth.subtract(const Duration(days: 1));
     final start = DateTime(lastMonthEnd.year, lastMonthEnd.month, 1);
-    return _DateRange(
-      _startOfDay(start),
-      _endOfDay(_endOfMonth(lastMonthEnd)),
-    );
+    return _DateRange(_startOfDay(start), _endOfDay(_endOfMonth(lastMonthEnd)));
   }
 
   static DateTime _startOfDay(DateTime date) =>
       DateTime(date.year, date.month, date.day);
 
-  static DateTime _endOfDay(DateTime date) => DateTime(
-        date.year,
-        date.month,
-        date.day,
-        23,
-        59,
-        59,
-        999,
-      );
+  static DateTime _endOfDay(DateTime date) =>
+      DateTime(date.year, date.month, date.day, 23, 59, 59, 999);
 
   static DateTime _endOfMonth(DateTime date) {
     final firstNextMonth = date.month == 12
@@ -1436,8 +1418,8 @@ class _GalleryMetricChip extends StatelessWidget {
     final background = emphasize
         ? Color.lerp(baseColor, highlightColor, 0.35) ?? highlightColor
         : isActive
-            ? Color.lerp(baseColor, highlightColor, 0.45) ?? highlightColor
-            : baseColor;
+        ? Color.lerp(baseColor, highlightColor, 0.45) ?? highlightColor
+        : baseColor;
 
     final borderColor = isActive || emphasize
         ? colorScheme.primary.withOpacity(0.28)
@@ -1456,8 +1438,9 @@ class _GalleryMetricChip extends StatelessWidget {
         border: Border.all(color: borderColor),
         boxShadow: [
           BoxShadow(
-            color: colorScheme.shadow
-                .withOpacity(isActive || emphasize ? 0.12 : 0.06),
+            color: colorScheme.shadow.withOpacity(
+              isActive || emphasize ? 0.12 : 0.06,
+            ),
             blurRadius: isActive || emphasize ? 22 : 14,
             offset: const Offset(0, 12),
           ),
@@ -1475,7 +1458,8 @@ class _GalleryMetricChip extends StatelessWidget {
               AnimatedDefaultTextStyle(
                 duration: animationDuration,
                 curve: animationCurve,
-                style: theme.textTheme.titleMedium?.copyWith(
+                style:
+                    theme.textTheme.titleMedium?.copyWith(
                       color: foreground,
                       fontWeight: FontWeight.w700,
                     ) ??
@@ -1489,14 +1473,12 @@ class _GalleryMetricChip extends StatelessWidget {
               AnimatedDefaultTextStyle(
                 duration: animationDuration,
                 curve: animationCurve,
-                style: theme.textTheme.labelMedium?.copyWith(
+                style:
+                    theme.textTheme.labelMedium?.copyWith(
                       color: foreground.withOpacity(0.8),
                       letterSpacing: 0.1,
                     ) ??
-                    TextStyle(
-                      color: foreground.withOpacity(0.8),
-                      fontSize: 12,
-                    ),
+                    TextStyle(color: foreground.withOpacity(0.8), fontSize: 12),
                 child: Text(label),
               ),
             ],
@@ -1524,8 +1506,7 @@ class _GallerySectionContainer extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final baseColor = theme.colorScheme.surface.withOpacity(0.82);
-    final highlightColor =
-        theme.colorScheme.primaryContainer.withOpacity(0.74);
+    final highlightColor = theme.colorScheme.primaryContainer.withOpacity(0.74);
     final backgroundColor = highlight
         ? Color.lerp(baseColor, highlightColor, 0.35) ?? highlightColor
         : baseColor;
@@ -1639,9 +1620,7 @@ class _GalleryGlassHeader extends StatelessWidget {
                 ),
                 decoration: BoxDecoration(
                   color: Colors.white.withOpacity(0.12),
-                  border: Border.all(
-                    color: Colors.white.withOpacity(0.18),
-                  ),
+                  border: Border.all(color: Colors.white.withOpacity(0.18)),
                   borderRadius: BorderRadius.circular(28),
                   boxShadow: const [
                     BoxShadow(
@@ -1703,10 +1682,9 @@ class _GalleryHeaderBackground extends StatelessWidget {
     }
 
     return Image(
-      image: AssetEntityImageProvider(
+      image: CachedThumbnailImageProvider(
         asset!,
-        thumbnailSize: const ThumbnailSize.square(1200),
-        isOriginal: false,
+        size: const ThumbnailSize.square(1200),
       ),
       fit: BoxFit.cover,
     );
