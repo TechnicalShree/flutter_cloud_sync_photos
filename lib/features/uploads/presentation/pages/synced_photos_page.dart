@@ -1,8 +1,9 @@
-import 'dart:math' as math;
-
 import 'package:flutter/material.dart';
+import 'package:photo_manager/photo_manager.dart';
 
 import '../../../gallery/data/services/gallery_upload_queue.dart';
+import '../../../gallery/presentation/pages/photo_detail_page.dart';
+import '../../../gallery/presentation/util/cached_thumbnail_image_provider.dart';
 import '../../../settings/data/settings_actions.dart';
 
 class SyncedPhotosPage extends StatefulWidget {
@@ -17,16 +18,17 @@ class _SyncedPhotosPageState extends State<SyncedPhotosPage> {
   final GalleryUploadQueue _uploadQueue = galleryUploadQueue;
 
   List<_SyncedPhotoEntry> _syncedPhotos = const [];
+  List<_SyncedPhotoEntry> _missingSyncedPhotos = const [];
   bool _loadingSyncedPhotos = true;
-  bool _showAllSyncedPhotos = false;
   bool _resettingMetadata = false;
   VoidCallback? _uploadQueueListener;
   int _completedJobCount = 0;
+  int _recordedPhotoCount = 0;
 
   @override
   void initState() {
     super.initState();
-    _loadSyncedPhotos(showSpinner: true, resetExpanded: true);
+    _loadSyncedPhotos(showSpinner: true);
     _completedJobCount =
         _uploadQueue.jobs.where((job) => job.status == UploadJobStatus.completed).length;
     _uploadQueueListener = _handleUploadQueueUpdate;
@@ -44,20 +46,13 @@ class _SyncedPhotosPageState extends State<SyncedPhotosPage> {
     _loadSyncedPhotos();
   }
 
-  Future<void> _loadSyncedPhotos({bool showSpinner = false, bool resetExpanded = false}) async {
+  Future<void> _loadSyncedPhotos({bool showSpinner = false}) async {
     if (!mounted) {
       return;
     }
     if (showSpinner) {
       setState(() {
         _loadingSyncedPhotos = true;
-        if (resetExpanded) {
-          _showAllSyncedPhotos = false;
-        }
-      });
-    } else if (resetExpanded) {
-      setState(() {
-        _showAllSyncedPhotos = false;
       });
     }
 
@@ -77,8 +72,41 @@ class _SyncedPhotosPageState extends State<SyncedPhotosPage> {
         .toList()
       ..sort((a, b) => a.assetId.compareTo(b.assetId));
 
+    final resolvedEntries = await Future.wait(
+      entries.map((entry) async {
+        try {
+          final asset = await AssetEntity.fromId(entry.assetId);
+          return entry.copyWith(asset: asset);
+        } catch (_) {
+          return entry;
+        }
+      }),
+    );
+
+    if (!mounted) {
+      return;
+    }
+
+    final available = <_SyncedPhotoEntry>[];
+    final missing = <_SyncedPhotoEntry>[];
+    for (final entry in resolvedEntries) {
+      if (entry.asset != null) {
+        available.add(entry);
+      } else {
+        missing.add(entry);
+      }
+    }
+
+    available.sort((a, b) {
+      final aDate = a.asset?.createDateTime ?? DateTime.fromMillisecondsSinceEpoch(0);
+      final bDate = b.asset?.createDateTime ?? DateTime.fromMillisecondsSinceEpoch(0);
+      return bDate.compareTo(aDate);
+    });
+
     setState(() {
-      _syncedPhotos = entries;
+      _recordedPhotoCount = entries.length;
+      _syncedPhotos = available;
+      _missingSyncedPhotos = missing;
       _loadingSyncedPhotos = false;
     });
   }
@@ -138,7 +166,7 @@ class _SyncedPhotosPageState extends State<SyncedPhotosPage> {
       messenger.showSnackBar(
         const SnackBar(content: Text('Upload metadata cleared')),
       );
-      await _loadSyncedPhotos(showSpinner: true, resetExpanded: true);
+      await _loadSyncedPhotos(showSpinner: true);
     } finally {
       if (mounted) {
         setState(() {
@@ -186,180 +214,326 @@ class _SyncedPhotosPageState extends State<SyncedPhotosPage> {
       ),
       body: RefreshIndicator(
         onRefresh: () => _loadSyncedPhotos(showSpinner: true),
-        child: ListView(
+        child: CustomScrollView(
           physics: const AlwaysScrollableScrollPhysics(parent: BouncingScrollPhysics()),
-          padding: const EdgeInsets.fromLTRB(24, 24, 24, 40),
-          children: [
+          slivers: [
+            SliverPadding(
+              padding: const EdgeInsets.fromLTRB(24, 24, 24, 16),
+              sliver: SliverToBoxAdapter(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Synced photos recorded: $_recordedPhotoCount',
+                      style: theme.textTheme.titleMedium,
+                    ),
+                    if (!_loadingSyncedPhotos)
+                      Padding(
+                        padding: const EdgeInsets.only(top: 6),
+                        child: Text(
+                          'Available on device: ${_syncedPhotos.length}',
+                          style: theme.textTheme.bodyMedium?.copyWith(
+                            color: theme.colorScheme.onSurfaceVariant,
+                          ),
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+            ),
             if (_loadingSyncedPhotos)
-              const Center(
-                child: Padding(
-                  padding: EdgeInsets.symmetric(vertical: 32),
+              const SliverFillRemaining(
+                hasScrollBody: false,
+                child: Center(
                   child: CircularProgressIndicator(),
                 ),
               )
-            else
-              ..._buildSyncedContent(theme),
+            else if (_recordedPhotoCount == 0)
+              SliverFillRemaining(
+                hasScrollBody: false,
+                child: Align(
+                  alignment: Alignment.topCenter,
+                  child: Padding(
+                    padding: const EdgeInsets.fromLTRB(24, 40, 24, 0),
+                    child: _SyncedPhotosEmptyState(),
+                  ),
+                ),
+              )
+            else ...[
+              if (_syncedPhotos.isNotEmpty)
+                SliverPadding(
+                  padding: const EdgeInsets.fromLTRB(12, 0, 12, 24),
+                  sliver: SliverGrid(
+                    gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                      crossAxisCount: 3,
+                      mainAxisSpacing: 8,
+                      crossAxisSpacing: 8,
+                    ),
+                    delegate: SliverChildBuilderDelegate(
+                      (context, index) {
+                        final entry = _syncedPhotos[index];
+                        return _SyncedPhotoTile(
+                          entry: entry,
+                          onTap: () => _openSyncedPhoto(entry),
+                        );
+                      },
+                      childCount: _syncedPhotos.length,
+                    ),
+                  ),
+                )
+              else
+                SliverToBoxAdapter(
+                  child: Padding(
+                    padding: const EdgeInsets.fromLTRB(24, 24, 24, 0),
+                    child: _SyncedPhotosMissingState(message: 'No synced photos available on this device.'),
+                  ),
+                ),
+              if (_missingSyncedPhotos.isNotEmpty)
+                SliverPadding(
+                  padding: const EdgeInsets.fromLTRB(24, 0, 24, 24),
+                  sliver: SliverToBoxAdapter(
+                    child: _SyncedPhotosMissingState(
+                      message:
+                          '${_missingSyncedPhotos.length} synced ${_missingSyncedPhotos.length == 1 ? 'photo is' : 'photos are'} no longer available on this device. They may have been removed from local storage.',
+                    ),
+                  ),
+                ),
+              const SliverToBoxAdapter(
+                child: SizedBox(height: 40),
+              ),
+            ],
           ],
         ),
       ),
     );
   }
 
-  List<Widget> _buildSyncedContent(ThemeData theme) {
-    final entries = _syncedPhotos;
-    const maxVisible = 40;
-    final hasEntries = entries.isNotEmpty;
-    final displayAll = _showAllSyncedPhotos || entries.length <= maxVisible;
-    final displayed = displayAll ? entries : entries.take(maxVisible).toList();
-    final hasMore = entries.length > maxVisible && !_showAllSyncedPhotos;
-    final showLess = entries.length > maxVisible && _showAllSyncedPhotos;
-
-    return [
-      Text(
-        'Synced photos recorded: ${entries.length}',
-        style: theme.textTheme.titleMedium,
+  void _openSyncedPhoto(_SyncedPhotoEntry entry) {
+    final asset = entry.asset;
+    if (asset == null) {
+      return;
+    }
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (context) => PhotoDetailPage(asset: asset),
       ),
-      const SizedBox(height: 16),
-      if (!hasEntries)
-        DecoratedBox(
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(16),
-            color: theme.colorScheme.surfaceVariant.withOpacity(0.25),
-          ),
-          child: Padding(
-            padding: const EdgeInsets.all(16),
-            child: Row(
+    );
+  }
+}
+
+class _SyncedPhotoEntry {
+  const _SyncedPhotoEntry({
+    required this.assetId,
+    required this.contentHash,
+    this.asset,
+  });
+
+  final String assetId;
+  final String contentHash;
+  final AssetEntity? asset;
+
+  _SyncedPhotoEntry copyWith({AssetEntity? asset}) {
+    return _SyncedPhotoEntry(
+      assetId: assetId,
+      contentHash: contentHash,
+      asset: asset ?? this.asset,
+    );
+  }
+}
+
+class _SyncedPhotoTile extends StatelessWidget {
+  const _SyncedPhotoTile({
+    super.key,
+    required this.entry,
+    required this.onTap,
+  });
+
+  final _SyncedPhotoEntry entry;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final asset = entry.asset;
+    final theme = Theme.of(context);
+    if (asset == null) {
+      return _MissingSyncedPhotoTile(assetId: entry.assetId);
+    }
+
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(12),
+      child: Material(
+        color: theme.colorScheme.surfaceVariant.withOpacity(0.12),
+        child: Tooltip(
+          message: 'Content hash: ${entry.contentHash}',
+          child: InkWell(
+            onTap: onTap,
+            child: Stack(
+              fit: StackFit.expand,
               children: [
-                Icon(
-                  Icons.photo_library_outlined,
-                  color: theme.colorScheme.onSurfaceVariant,
+                Hero(
+                  tag: asset.id,
+                  transitionOnUserGestures: true,
+                  child: Image(
+                    image: CachedThumbnailImageProvider(
+                      asset,
+                      size: const ThumbnailSize.square(600),
+                    ),
+                    fit: BoxFit.cover,
+                  ),
                 ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Text(
-                    'No synced photos recorded yet.',
-                    style: theme.textTheme.bodyMedium?.copyWith(
-                      color: theme.colorScheme.onSurfaceVariant,
+                Positioned(
+                  bottom: 8,
+                  right: 8,
+                  child: DecoratedBox(
+                    decoration: BoxDecoration(
+                      color: Colors.black.withOpacity(0.55),
+                      borderRadius: BorderRadius.circular(10),
+                      border: Border.all(
+                        color: Colors.white.withOpacity(0.2),
+                        width: 0.5,
+                      ),
+                    ),
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                      child: Text(
+                        'Synced',
+                        style: theme.textTheme.labelSmall?.copyWith(
+                          color: Colors.white,
+                          fontWeight: FontWeight.w600,
+                          letterSpacing: 0.2,
+                        ),
+                      ),
                     ),
                   ),
                 ),
               ],
             ),
           ),
-        )
-      else ...[
-        ListView.separated(
-          shrinkWrap: true,
-          physics: const NeverScrollableScrollPhysics(),
-          itemCount: displayed.length,
-          separatorBuilder: (_, __) => const SizedBox(height: 12),
-          itemBuilder: (context, index) {
-            final entry = displayed[index];
-            return _SyncedPhotoRow(entry: entry);
-          },
         ),
-        if (hasMore || showLess)
-          Padding(
-            padding: const EdgeInsets.only(top: 16),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                if (hasMore)
-                  TextButton.icon(
-                    onPressed: () {
-                      setState(() {
-                        _showAllSyncedPhotos = true;
-                      });
-                    },
-                    icon: const Icon(Icons.expand_more),
-                    label: Text('Show all (${entries.length})'),
-                  ),
-                if (showLess)
-                  TextButton.icon(
-                    onPressed: () {
-                      setState(() {
-                        _showAllSyncedPhotos = false;
-                      });
-                    },
-                    icon: const Icon(Icons.expand_less),
-                    label: const Text('Show less'),
-                  ),
-              ],
-            ),
-          ),
-      ],
-    ];
+      ),
+    );
   }
 }
 
-class _SyncedPhotoEntry {
-  const _SyncedPhotoEntry({required this.assetId, required this.contentHash});
+class _MissingSyncedPhotoTile extends StatelessWidget {
+  const _MissingSyncedPhotoTile({required this.assetId});
 
   final String assetId;
-  final String contentHash;
-
-  String get shortHash {
-    if (contentHash.length <= 12) {
-      return contentHash;
-    }
-    return '${contentHash.substring(0, 12)}…';
-  }
-}
-
-class _SyncedPhotoRow extends StatelessWidget {
-  const _SyncedPhotoRow({super.key, required this.entry});
-
-  final _SyncedPhotoEntry entry;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final assetSegments = entry.assetId.split('/');
-    final folderSegments = assetSegments.length <= 1
-        ? <String>[]
-        : assetSegments.sublist(0, assetSegments.length - 1);
-    final fileName = assetSegments.isEmpty ? entry.assetId : assetSegments.last;
-    final folderPreview = folderSegments.isEmpty
-        ? null
-        : folderSegments
-            .map(
-              (segment) => segment.length <= 16
-                  ? segment
-                  : '${segment.substring(0, math.min(16, segment.length))}…',
-            )
-            .join(' / ');
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(12),
+        color: theme.colorScheme.surfaceVariant.withOpacity(0.3),
+        border: Border.all(
+          color: theme.colorScheme.outlineVariant.withOpacity(0.4),
+        ),
+      ),
+      child: Center(
+        child: Padding(
+          padding: const EdgeInsets.all(12),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(
+                Icons.broken_image_outlined,
+                color: theme.colorScheme.onSurfaceVariant,
+              ),
+              const SizedBox(height: 8),
+              Text(
+                'Missing asset',
+                style: theme.textTheme.labelMedium?.copyWith(
+                  color: theme.colorScheme.onSurfaceVariant,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                assetId,
+                textAlign: TextAlign.center,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: theme.textTheme.bodySmall?.copyWith(
+                  color: theme.colorScheme.onSurfaceVariant.withOpacity(0.7),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
 
+class _SyncedPhotosEmptyState extends StatelessWidget {
+  const _SyncedPhotosEmptyState();
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(16),
+        color: theme.colorScheme.surfaceVariant.withOpacity(0.25),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(20),
+        child: Row(
+          children: [
+            Icon(
+              Icons.photo_library_outlined,
+              color: theme.colorScheme.onSurfaceVariant,
+            ),
+            const SizedBox(width: 16),
+            Expanded(
+              child: Text(
+                'No synced photos recorded yet.',
+                style: theme.textTheme.bodyMedium?.copyWith(
+                  color: theme.colorScheme.onSurfaceVariant,
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _SyncedPhotosMissingState extends StatelessWidget {
+  const _SyncedPhotosMissingState({required this.message});
+
+  final String message;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
     return DecoratedBox(
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(16),
         color: theme.colorScheme.surfaceVariant.withOpacity(0.3),
+        border: Border.all(
+          color: theme.colorScheme.outlineVariant.withOpacity(0.35),
+        ),
       ),
       child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-        child: Column(
+        padding: const EdgeInsets.all(16),
+        child: Row(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(
-              fileName,
-              style: theme.textTheme.titleSmall?.copyWith(
-                fontWeight: FontWeight.w600,
-              ),
+            Icon(
+              Icons.info_outline,
+              color: theme.colorScheme.onSurfaceVariant,
             ),
-            if (folderPreview != null) ...[
-              const SizedBox(height: 6),
-              Text(
-                folderPreview,
-                style: theme.textTheme.bodySmall?.copyWith(
+            const SizedBox(width: 12),
+            Expanded(
+              child: Text(
+                message,
+                style: theme.textTheme.bodyMedium?.copyWith(
                   color: theme.colorScheme.onSurfaceVariant,
                 ),
-              ),
-            ],
-            const SizedBox(height: 6),
-            Text(
-              'Hash: ${entry.shortHash}',
-              style: theme.textTheme.bodySmall?.copyWith(
-                fontFamily: 'monospace',
-                color: theme.colorScheme.primary,
               ),
             ),
           ],
