@@ -119,6 +119,11 @@ class UploadMetadataStore {
     _cache = <String, String>{};
   }
 
+  Future<Map<String, String>> loadAll() async {
+    await _ensureCacheLoaded();
+    return Map.unmodifiable(Map<String, String>.from(_getCacheUnsafe()));
+  }
+
   Map<String, String> _decode(String stored) {
     final dynamic decoded = jsonDecode(stored);
     if (decoded is Map) {

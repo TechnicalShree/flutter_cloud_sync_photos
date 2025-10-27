@@ -1,0 +1,6 @@
+# Copy this file to android/key.properties and replace the placeholder values
+# with the credentials for your release keystore before building a signed APK.
+storeFile=../keystore/your-release-key.jks
+storePassword=your-store-password
+keyAlias=your-key-alias
+keyPassword=your-key-password

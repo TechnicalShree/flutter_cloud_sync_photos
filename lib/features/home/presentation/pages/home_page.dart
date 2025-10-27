@@ -4,6 +4,7 @@ import '../../../albums/presentation/pages/album_page.dart';
 import '../../../gallery/presentation/pages/gallery_page.dart';
 import '../../../synced/presentation/pages/synced_photos_page.dart';
 import '../../../settings/presentation/pages/settings_page.dart';
+import '../../../uploads/presentation/pages/synced_photos_page.dart';
 
 class HomePage extends StatefulWidget {
   const HomePage({super.key});

@@ -7,6 +7,8 @@ class SettingsActions {
   final UploadMetadataStore _metadataStore;
 
   Future<void> resetUploadMetadata() => _metadataStore.clearAll();
+
+  Future<Map<String, String>> loadSyncedPhotos() => _metadataStore.loadAll();
 }
 
 final SettingsActions settingsActions = SettingsActions();

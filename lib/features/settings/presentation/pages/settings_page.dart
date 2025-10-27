@@ -1,3 +1,5 @@
+import 'dart:async';
+import 'dart:convert';
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
@@ -19,7 +21,7 @@ class SettingsPage extends StatefulWidget {
 }
 
 class _SettingsPageState extends State<SettingsPage>
-    with SingleTickerProviderStateMixin {
+    with TickerProviderStateMixin {
   final AuthService _authService = globalAuthService;
   final UploadPreferencesStore _preferencesStore = uploadPreferencesStore;
   final SettingsActions _actions = settingsActions;
@@ -67,7 +69,10 @@ class _SettingsPageState extends State<SettingsPage>
   }
 
   Future<void> _loadInitialData() async {
-    await Future.wait([_loadUserDetails(), _loadUploadPreferences()]);
+    await Future.wait([
+      _loadUserDetails(),
+      _loadUploadPreferences(),
+    ]);
   }
 
   Future<void> _loadUserDetails() async {
@@ -139,6 +144,37 @@ class _SettingsPageState extends State<SettingsPage>
 
   Future<void> _handleLogout() async {
     if (_processingLogout) {
+      return;
+    }
+
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) {
+        final theme = Theme.of(context);
+        return AlertDialog(
+          title: const Text('Sign out?'),
+          content: const Text(
+            'You will be signed out from this device and will need to log in again to continue.',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(false),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              style: FilledButton.styleFrom(
+                backgroundColor: theme.colorScheme.error,
+                foregroundColor: theme.colorScheme.onError,
+              ),
+              onPressed: () => Navigator.of(context).pop(true),
+              child: const Text('Sign out'),
+            ),
+          ],
+        );
+      },
+    );
+
+    if (confirmed != true || !mounted) {
       return;
     }
 
@@ -334,6 +370,7 @@ class _SettingsPageState extends State<SettingsPage>
     }
 
     final details = _userDetails;
+    final prettyDetails = _prettyPrintUserDetails(details);
     return _SectionCard(
       title: 'Account',
       child: Column(
@@ -370,6 +407,38 @@ class _SettingsPageState extends State<SettingsPage>
             label: 'Gender',
             value: _safeDisplay(details?.gender) ?? 'Not specified',
           ),
+          if (prettyDetails != null) ...[
+            const SizedBox(height: 20),
+            DecoratedBox(
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(12),
+                color: theme.colorScheme.surfaceVariant.withOpacity(0.35),
+              ),
+              child: Padding(
+                padding: const EdgeInsets.all(12),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'API response',
+                      style: theme.textTheme.labelMedium?.copyWith(
+                        color: theme.colorScheme.onSurfaceVariant,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    SelectableText(
+                      prettyDetails,
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        fontFamily: 'monospace',
+                        color: theme.colorScheme.onSurfaceVariant,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ],
         ],
       ),
     );
@@ -512,6 +581,13 @@ class _SettingsPageState extends State<SettingsPage>
   }
 
   Widget _buildUploadProgressSection(ThemeData theme) {
+    return _SectionCard(
+      title: 'Background Uploads',
+      child: _buildUploadQueueTab(theme),
+    );
+  }
+
+  Widget _buildUploadQueueTab(ThemeData theme) {
     const maxVisible = 10;
     final jobs = _uploadJobs;
     final reversedJobs = jobs.reversed.toList();
@@ -524,8 +600,8 @@ class _SettingsPageState extends State<SettingsPage>
     final hasFinished = jobs.any((job) => job.isFinished);
     final preparing = _uploadQueue.hasActiveUploads && !hasJobs;
 
-    return _SectionCard(
-      title: 'Background Uploads',
+    return KeyedSubtree(
+      key: const ValueKey('upload-queue-tab'),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -637,6 +713,27 @@ class _SettingsPageState extends State<SettingsPage>
     }
     final trimmed = value.trim();
     return trimmed.isEmpty ? null : trimmed;
+  }
+
+  String? _prettyPrintUserDetails(UserDetails? details) {
+    if (details == null) {
+      return null;
+    }
+    final rawJson = details.toJson()
+      ..removeWhere((key, value) {
+        if (value == null) {
+          return true;
+        }
+        if (value is String) {
+          return value.trim().isEmpty;
+        }
+        return false;
+      });
+    if (rawJson.isEmpty) {
+      return null;
+    }
+    const encoder = JsonEncoder.withIndent('  ');
+    return encoder.convert(rawJson);
   }
 
   Widget _buildLogoutSection(ThemeData theme) {
