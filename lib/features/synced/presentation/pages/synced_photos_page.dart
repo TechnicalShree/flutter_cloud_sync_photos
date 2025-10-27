@@ -147,11 +147,13 @@ class _SyncedPhotosPageState extends State<SyncedPhotosPage> {
 
   @override
   Widget build(BuildContext context) {
-    return GalleryRefreshIndicator(
-      onRefresh: _handleRefresh,
-      child: CustomScrollView(
-        physics: const AlwaysScrollableScrollPhysics(),
-        slivers: _buildSlivers(context),
+    return SafeArea(
+      child: GalleryRefreshIndicator(
+        onRefresh: _handleRefresh,
+        child: CustomScrollView(
+          physics: const AlwaysScrollableScrollPhysics(),
+          slivers: _buildSlivers(context),
+        ),
       ),
     );
   }
