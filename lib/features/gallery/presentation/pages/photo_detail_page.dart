@@ -21,6 +21,7 @@ class _PhotoDetailPageState extends State<PhotoDetailPage>
     with SingleTickerProviderStateMixin {
   late final Future<_PhotoMetadata> _metadataFuture;
   final UploadMetadataStore _uploadMetadataStore = UploadMetadataStore();
+  final AuthService _authService = globalAuthService;
   String? _contentHash;
   bool _loadingContentHash = true;
   bool _isUnsyncing = false;
@@ -29,6 +30,8 @@ class _PhotoDetailPageState extends State<PhotoDetailPage>
   late final Animation<Offset> _detailsOffset;
   bool _showTapHint = true;
   double _dragToDismissExtent = 0;
+  late final ValueNotifier<AuthStatus> _authStatusNotifier;
+  late AuthStatus _authStatus;
 
   @override
   void initState() {
@@ -50,11 +53,15 @@ class _PhotoDetailPageState extends State<PhotoDetailPage>
     _metadataFuture = _PhotoMetadata.fromAsset(widget.asset);
     _loadContentHash();
     _scheduleTapHintDismissal();
+    _authStatusNotifier = _authService.authStatusNotifier;
+    _authStatus = _authStatusNotifier.value;
+    _authStatusNotifier.addListener(_handleAuthStatusChange);
   }
 
   @override
   void dispose() {
     _detailsController.dispose();
+    _authStatusNotifier.removeListener(_handleAuthStatusChange);
     super.dispose();
   }
 
@@ -66,6 +73,21 @@ class _PhotoDetailPageState extends State<PhotoDetailPage>
       setState(() {
         _showTapHint = false;
       });
+    });
+  }
+
+  bool get _canManageSync =>
+      _authStatus == AuthStatus.authenticated ||
+      _authStatus == AuthStatus.offline;
+
+  void _handleAuthStatusChange() {
+    final status = _authStatusNotifier.value;
+    if (!mounted) {
+      _authStatus = status;
+      return;
+    }
+    setState(() {
+      _authStatus = status;
     });
   }
 
@@ -484,6 +506,15 @@ class _PhotoDetailPageState extends State<PhotoDetailPage>
   }
 
   Future<void> _handleUnsync() async {
+    if (!_canManageSync) {
+      final messenger = ScaffoldMessenger.of(context);
+      messenger.hideCurrentSnackBar();
+      messenger.showSnackBar(
+        const SnackBar(content: Text('Sign in to unsync photos.')),
+      );
+      return;
+    }
+
     final hash = _contentHash;
     if (hash == null || hash.isEmpty || _isUnsyncing) {
       return;
@@ -558,6 +589,8 @@ class _PhotoDetailPageState extends State<PhotoDetailPage>
     final isSynced = _contentHash != null && _contentHash!.isNotEmpty;
     final isBusy = _isUnsyncing;
 
+    final canManageSync = _canManageSync;
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
@@ -565,7 +598,8 @@ class _PhotoDetailPageState extends State<PhotoDetailPage>
         SizedBox(
           width: double.infinity,
           child: FilledButton(
-            onPressed: (!isSynced || isBusy) ? null : _handleUnsync,
+            onPressed:
+                (!isSynced || isBusy || !canManageSync) ? null : _handleUnsync,
             child: isBusy
                 ? SizedBox(
                     height: 20,
@@ -580,7 +614,18 @@ class _PhotoDetailPageState extends State<PhotoDetailPage>
                 : const Text('Unsync photo'),
           ),
         ),
-        if (!isSynced)
+        if (!canManageSync)
+          Padding(
+            padding: const EdgeInsets.only(top: 8),
+            child: Text(
+              'Sign in to manage synced photos.',
+              textAlign: TextAlign.center,
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: theme.colorScheme.onSurfaceVariant,
+              ),
+            ),
+          )
+        else if (!isSynced)
           Padding(
             padding: const EdgeInsets.only(top: 8),
             child: Text(

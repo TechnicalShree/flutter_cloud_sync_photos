@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import '../../../auth/data/services/auth_service.dart';
 import '../../../auth/domain/models/user_details.dart';
 import '../../../auth/presentation/pages/login_page.dart';
+import '../../../home/presentation/pages/home_page.dart';
 import '../../data/upload_preferences_store.dart';
 import '../../data/settings_actions.dart';
 import '../../../gallery/data/services/gallery_upload_queue.dart';
@@ -24,6 +25,8 @@ class _SettingsPageState extends State<SettingsPage>
   final UploadPreferencesStore _preferencesStore = uploadPreferencesStore;
   final SettingsActions _actions = settingsActions;
   final GalleryUploadQueue _uploadQueue = galleryUploadQueue;
+  late final ValueNotifier<AuthStatus> _authStatusNotifier;
+  late AuthStatus _authStatus;
 
   late final AnimationController _backgroundController;
   UserDetails? _userDetails;
@@ -48,6 +51,9 @@ class _SettingsPageState extends State<SettingsPage>
     _uploadJobs = _uploadQueue.jobs;
     _uploadQueueListener = _handleUploadQueueUpdate;
     _uploadQueue.addListener(_uploadQueueListener!);
+    _authStatusNotifier = _authService.authStatusNotifier;
+    _authStatus = _authStatusNotifier.value;
+    _authStatusNotifier.addListener(_handleAuthStatusChange);
     _loadInitialData();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) {
@@ -71,6 +77,17 @@ class _SettingsPageState extends State<SettingsPage>
   }
 
   Future<void> _loadUserDetails() async {
+    if (!_isAuthenticated) {
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _userDetails = null;
+        _loadingUser = false;
+      });
+      return;
+    }
+
     try {
       final cached = _authService.currentUser;
       if (cached != null) {
@@ -123,6 +140,38 @@ class _SettingsPageState extends State<SettingsPage>
     });
   }
 
+  bool get _isAuthenticated =>
+      _authStatus == AuthStatus.authenticated ||
+      _authStatus == AuthStatus.offline;
+
+  void _handleAuthStatusChange() {
+    final status = _authStatusNotifier.value;
+    if (!mounted) {
+      _authStatus = status;
+      return;
+    }
+    if (_authStatus == status) {
+      return;
+    }
+    final becameAuthenticated =
+        status == AuthStatus.authenticated || status == AuthStatus.offline;
+    setState(() {
+      _authStatus = status;
+      if (becameAuthenticated) {
+        _loadingUser = true;
+        _loadingPreferences = true;
+      } else {
+        _userDetails = null;
+        _loadingUser = false;
+        _loadingPreferences = false;
+        _processingLogout = false;
+      }
+    });
+    if (becameAuthenticated) {
+      _loadInitialData();
+    }
+  }
+
   Future<void> _handlePrivateToggle(bool value) async {
     setState(() {
       _isPrivateUploads = value;
@@ -135,6 +184,10 @@ class _SettingsPageState extends State<SettingsPage>
       _optimizeUploads = value;
     });
     await _preferencesStore.setOptimize(value);
+  }
+
+  void _handleLogin() {
+    Navigator.of(context).pushNamed(LoginPage.routeName);
   }
 
   Future<void> _handleLogout() async {
@@ -153,7 +206,7 @@ class _SettingsPageState extends State<SettingsPage>
 
     Navigator.of(
       context,
-    ).pushNamedAndRemoveUntil(LoginPage.routeName, (_) => false);
+    ).pushNamedAndRemoveUntil(HomePage.routeName, (_) => false);
   }
 
   Future<void> _handleResetMetadata() async {
@@ -224,6 +277,7 @@ class _SettingsPageState extends State<SettingsPage>
   @override
   void dispose() {
     _backgroundController.dispose();
+    _authStatusNotifier.removeListener(_handleAuthStatusChange);
     if (_uploadQueueListener != null) {
       _uploadQueue.removeListener(_uploadQueueListener!);
       _uploadQueueListener = null;
@@ -278,27 +332,39 @@ class _SettingsPageState extends State<SettingsPage>
                 padding: const EdgeInsets.fromLTRB(24, 16, 24, 32),
                 sliver: SliverList(
                   delegate: SliverChildListDelegate(
-                    [
-                      _animatedSection(
-                        index: 0,
-                        child: _buildUserSection(theme),
-                      ),
-                      const SizedBox(height: 24),
-                      _animatedSection(
-                        index: 1,
-                        child: _buildUploadConfigSection(theme),
-                      ),
-                      const SizedBox(height: 24),
-                      _animatedSection(
-                        index: 2,
-                        child: _buildUploadProgressSection(theme),
-                      ),
-                      const SizedBox(height: 24),
-                      _animatedSection(
-                        index: 3,
-                        child: _buildLogoutSection(theme),
-                      ),
-                    ],
+                    _isAuthenticated
+                        ? [
+                            _animatedSection(
+                              index: 0,
+                              child: _buildUserSection(theme),
+                            ),
+                            const SizedBox(height: 24),
+                            _animatedSection(
+                              index: 1,
+                              child: _buildUploadConfigSection(theme),
+                            ),
+                            const SizedBox(height: 24),
+                            _animatedSection(
+                              index: 2,
+                              child: _buildUploadProgressSection(theme),
+                            ),
+                            const SizedBox(height: 24),
+                            _animatedSection(
+                              index: 3,
+                              child: _buildLogoutSection(theme),
+                            ),
+                          ]
+                        : [
+                            _animatedSection(
+                              index: 0,
+                              child: _buildLoggedOutWelcome(theme),
+                            ),
+                            const SizedBox(height: 24),
+                            _animatedSection(
+                              index: 1,
+                              child: _buildLoggedOutInfo(theme),
+                            ),
+                          ],
                   ),
                 ),
               ),
@@ -321,6 +387,74 @@ class _SettingsPageState extends State<SettingsPage>
         curve: Curves.easeOutCubic,
         offset: visible ? Offset.zero : const Offset(0, 0.08),
         child: child,
+      ),
+    );
+  }
+
+  Widget _buildLoggedOutWelcome(ThemeData theme) {
+    return _SectionCard(
+      title: 'Sign in to sync',
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'Browse your gallery without signing in. Uploads and cloud sync tools unlock once you sign in.',
+            style: theme.textTheme.bodyMedium?.copyWith(
+              color: theme.colorScheme.onSurfaceVariant,
+            ),
+          ),
+          const SizedBox(height: 20),
+          SizedBox(
+            width: double.infinity,
+            child: ElevatedButton.icon(
+              onPressed: _handleLogin,
+              icon: const Icon(Icons.login),
+              label: const Text('Sign in'),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildLoggedOutInfo(ThemeData theme) {
+    final colorScheme = theme.colorScheme;
+    return _SectionCard(
+      title: 'Available while signed out',
+      child: Column(
+        children: [
+          ListTile(
+            contentPadding:
+                const EdgeInsets.symmetric(horizontal: 4, vertical: 4),
+            leading: Icon(
+              Icons.photo_library_outlined,
+              color: colorScheme.onSurfaceVariant.withOpacity(0.8),
+            ),
+            title: const Text('View your on-device photos'),
+            subtitle: Text(
+              'Explore and organize your gallery without connecting to the cloud.',
+              style: theme.textTheme.bodyMedium?.copyWith(
+                color: colorScheme.onSurfaceVariant,
+              ),
+            ),
+          ),
+          const Divider(height: 24),
+          ListTile(
+            contentPadding:
+                const EdgeInsets.symmetric(horizontal: 4, vertical: 4),
+            leading: Icon(
+              Icons.cloud_off,
+              color: colorScheme.onSurfaceVariant.withOpacity(0.8),
+            ),
+            title: const Text('Cloud actions stay disabled'),
+            subtitle: Text(
+              'Uploads, retry, and unsync options appear after you sign in.',
+              style: theme.textTheme.bodyMedium?.copyWith(
+                color: colorScheme.onSurfaceVariant,
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }
