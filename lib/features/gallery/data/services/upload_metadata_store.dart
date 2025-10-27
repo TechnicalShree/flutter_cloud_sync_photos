@@ -91,6 +91,12 @@ class UploadMetadataStore {
     return hash != null && hash.isNotEmpty;
   }
 
+  Future<List<String>> getUploadedAssetIds() async {
+    await _ensureCacheLoaded();
+    final metadata = _getCacheUnsafe();
+    return List<String>.from(metadata.keys);
+  }
+
   Future<void> remove(String assetId) async {
     if (assetId.isEmpty) {
       return;
