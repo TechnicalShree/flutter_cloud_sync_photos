@@ -19,6 +19,7 @@ class GallerySectionList extends StatelessWidget {
     super.key,
     required this.sections,
     required this.metadataStore,
+    this.showSyncStatus = true,
     this.selectionMode = false,
     this.selectedAssetIds = const <String>{},
     this.uploadingAssetIds = const <String>{},
@@ -36,6 +37,7 @@ class GallerySectionList extends StatelessWidget {
 
   final List<GallerySection> sections;
   final UploadMetadataStore metadataStore;
+  final bool showSyncStatus;
   final bool selectionMode;
   final Set<String> selectedAssetIds;
   final Set<String> uploadingAssetIds;
@@ -62,6 +64,7 @@ class GallerySectionList extends StatelessWidget {
           child: _GallerySectionView(
             section: section,
             metadataStore: metadataStore,
+            showSyncStatus: showSyncStatus,
             selectionMode: selectionMode,
             selectedAssetIds: selectedAssetIds,
             uploadingAssetIds: uploadingAssetIds,
@@ -88,6 +91,7 @@ class _GallerySectionView extends StatefulWidget {
   const _GallerySectionView({
     required this.section,
     required this.metadataStore,
+    required this.showSyncStatus,
     required this.selectionMode,
     required this.selectedAssetIds,
     required this.uploadingAssetIds,
@@ -107,6 +111,7 @@ class _GallerySectionView extends StatefulWidget {
 
   final GallerySection section;
   final UploadMetadataStore metadataStore;
+  final bool showSyncStatus;
   final bool selectionMode;
   final Set<String> selectedAssetIds;
   final Set<String> uploadingAssetIds;
@@ -205,6 +210,7 @@ class _GallerySectionViewState extends State<_GallerySectionView> {
                   asset: asset,
                   theme: theme,
                   metadataStore: widget.metadataStore,
+                  showSyncStatus: widget.showSyncStatus,
                   selectionMode: widget.selectionMode,
                   isSelected: widget.selectedAssetIds.contains(asset.id),
                   isUploading: widget.uploadingAssetIds.contains(asset.id),

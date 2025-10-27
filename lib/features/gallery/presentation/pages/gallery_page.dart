@@ -1182,6 +1182,7 @@ class _GalleryPageState extends State<GalleryPage>
     return GallerySectionList(
       sections: _sections,
       metadataStore: _metadataStore,
+      showSyncStatus: _isAuthenticated,
       selectionMode: _selectionMode,
       selectedAssetIds: _selectedAssetIds,
       uploadingAssetIds: _uploadingAssetIds,
