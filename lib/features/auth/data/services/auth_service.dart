@@ -1,5 +1,6 @@
-import 'package:flutter_cloud_sync_photos/core/network/api_client.dart'
-    as network;
+import 'package:flutter/foundation.dart';
+
+import 'package:flutter_cloud_sync_photos/core/network/api_client.dart' as network;
 import 'package:flutter_cloud_sync_photos/core/network/api_exception.dart';
 import 'package:flutter_cloud_sync_photos/core/network/network_config.dart';
 import 'package:flutter_cloud_sync_photos/core/network/network_service.dart';
@@ -26,9 +27,17 @@ class AuthService {
   Map<String, String> _sessionCookies = const {};
   UserDetails? _userDetails;
 
+  final ValueNotifier<AuthStatus> authStatusNotifier =
+      ValueNotifier<AuthStatus>(AuthStatus.unauthenticated);
+
   Map<String, String> get sessionCookies => Map.unmodifiable(_sessionCookies);
 
   UserDetails? get currentUser => _userDetails;
+
+  AuthStatus get authStatus => authStatusNotifier.value;
+
+  bool get isAuthenticated =>
+      authStatus == AuthStatus.authenticated || authStatus == AuthStatus.offline;
 
   Future<Map<String, String>> login({
     required String username,
@@ -64,6 +73,8 @@ class AuthService {
     _apiClient.setDefaultCookies(cookies, merge: false);
     await _loadAndPersistUserDetails();
 
+    authStatusNotifier.value = AuthStatus.authenticated;
+
     return sessionCookies;
   }
 
@@ -77,7 +88,10 @@ class AuthService {
         _apiClient.setDefaultCookies(storedCookies, merge: false);
         _userDetails = await _sessionManager.loadUserDetails();
       }
-      return AuthStatus.offline;
+      final status =
+          storedCookies.isNotEmpty ? AuthStatus.offline : AuthStatus.unauthenticated;
+      authStatusNotifier.value = status;
+      return status;
     }
 
     final hasSession = await verifySession();
@@ -87,7 +101,10 @@ class AuthService {
         await _loadAndPersistUserDetails();
       }
     }
-    return hasSession ? AuthStatus.authenticated : AuthStatus.unauthenticated;
+    final status =
+        hasSession ? AuthStatus.authenticated : AuthStatus.unauthenticated;
+    authStatusNotifier.value = status;
+    return status;
   }
 
   Future<bool> verifySession() async {
@@ -121,6 +138,7 @@ class AuthService {
     await _sessionManager.clearCookies();
     await _sessionManager.clearUserDetails();
     _apiClient.setDefaultCookies({}, merge: false);
+    authStatusNotifier.value = AuthStatus.unauthenticated;
   }
 
   Future<UserDetails> fetchUserDetails() async {

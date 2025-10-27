@@ -3,7 +3,6 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 
 import '../../data/services/auth_service.dart';
-import '../pages/login_page.dart';
 import '../../../home/presentation/pages/home_page.dart';
 
 class AuthGate extends StatefulWidget {
@@ -35,14 +34,7 @@ class _AuthGateState extends State<AuthGate> {
           return const _SplashScreen();
         }
 
-        final status = snapshot.data ?? AuthStatus.unauthenticated;
-
-        if (status == AuthStatus.authenticated ||
-            status == AuthStatus.offline) {
-          return const HomePage();
-        }
-
-        return LoginPage(authService: _authService);
+        return const HomePage();
       },
     );
   }

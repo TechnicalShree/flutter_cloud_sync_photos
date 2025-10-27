@@ -6,6 +6,7 @@ import 'package:flutter/rendering.dart';
 import 'package:flutter_cloud_sync_photos/core/navigation/shared_axis_page_route.dart';
 import 'package:flutter_cloud_sync_photos/core/network/api_exception.dart';
 import 'package:flutter_cloud_sync_photos/features/auth/data/services/auth_service.dart';
+import 'package:flutter_cloud_sync_photos/features/auth/presentation/pages/login_page.dart';
 import 'package:photo_manager/photo_manager.dart';
 import '../util/cached_thumbnail_image_provider.dart';
 
@@ -67,6 +68,7 @@ class _GalleryPageState extends State<GalleryPage>
   bool _selectionMode = false;
 
   final UploadMetadataStore _metadataStore = UploadMetadataStore();
+  final AuthService _authService = globalAuthService;
   final Set<String> _selectedAssetIds = <String>{};
   final Map<String, AssetEntity> _selectedAssets = <String, AssetEntity>{};
   late final GalleryUploadQueue _uploadQueue;
@@ -76,6 +78,8 @@ class _GalleryPageState extends State<GalleryPage>
   bool _isProcessingSelectionAction = false;
   bool _dragSelecting = false;
   VoidCallback? _uploadQueueListener;
+  late final ValueNotifier<AuthStatus> _authStatusNotifier;
+  late AuthStatus _authStatus;
 
   List<AssetEntity> _assets = const <AssetEntity>[];
   List<GallerySection> _sections = const <GallerySection>[];
@@ -99,6 +103,9 @@ class _GalleryPageState extends State<GalleryPage>
     _syncUploadState();
     _scrollController = ScrollController()..addListener(_onScroll);
     _initializeGallery(reset: true);
+    _authStatusNotifier = _authService.authStatusNotifier;
+    _authStatus = _authStatusNotifier.value;
+    _authStatusNotifier.addListener(_handleAuthStatusChange);
   }
 
   @override
@@ -107,11 +114,16 @@ class _GalleryPageState extends State<GalleryPage>
       _uploadQueue.removeListener(_uploadQueueListener!);
       _uploadQueueListener = null;
     }
+    _authStatusNotifier.removeListener(_handleAuthStatusChange);
     _backgroundController.dispose();
     _scrollController.removeListener(_onScroll);
     _scrollController.dispose();
     super.dispose();
   }
+
+  bool get _isAuthenticated =>
+      _authStatus == AuthStatus.authenticated ||
+      _authStatus == AuthStatus.offline;
 
   Future<void> _initializeGallery({required bool reset}) async {
     if (reset) {
@@ -203,6 +215,80 @@ class _GalleryPageState extends State<GalleryPage>
       _hasActiveUploads = hasActive;
       _failedUploadAssetIds = failedIds;
     }
+  }
+
+  void _handleAuthStatusChange() {
+    final status = _authStatusNotifier.value;
+    if (!mounted) {
+      _authStatus = status;
+      return;
+    }
+    setState(() {
+      _authStatus = status;
+    });
+  }
+
+  void _showLoginRequiredMessage() {
+    final messenger = ScaffoldMessenger.of(context);
+    messenger.hideCurrentSnackBar();
+    messenger.showSnackBar(
+      const SnackBar(content: Text('Sign in to sync your photos.')),
+    );
+  }
+
+  void _openLoginPage() {
+    Navigator.of(context).pushNamed(LoginPage.routeName);
+  }
+
+  Widget _buildLoginReminderBanner(ThemeData theme) {
+    final colorScheme = theme.colorScheme;
+    final foreground = colorScheme.onSecondaryContainer;
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(20),
+        color: colorScheme.secondaryContainer.withOpacity(0.24),
+        border: Border.all(color: colorScheme.secondary.withOpacity(0.18)),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Icon(Icons.lock_outline, color: foreground),
+            const SizedBox(width: 16),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Sign in to sync your photos',
+                    style: theme.textTheme.titleMedium?.copyWith(
+                      fontWeight: FontWeight.w700,
+                      color: foreground,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    'Upload, retry, and unsync actions unlock once you sign in.',
+                    style: theme.textTheme.bodyMedium?.copyWith(
+                      color: foreground.withOpacity(0.85),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(width: 12),
+            TextButton(
+              onPressed: _openLoginPage,
+              style: TextButton.styleFrom(
+                foregroundColor: colorScheme.onSecondaryContainer,
+              ),
+              child: const Text('Sign in'),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 
   Future<void> _fetchAssets({required bool reset}) async {
@@ -451,6 +537,11 @@ class _GalleryPageState extends State<GalleryPage>
   }
 
   Future<void> _uploadAsset(AssetEntity asset) async {
+    if (!_isAuthenticated) {
+      _showLoginRequiredMessage();
+      return;
+    }
+
     final messenger = ScaffoldMessenger.of(context);
     final summary = await _uploadQueue.enqueueAssets([
       asset,
@@ -467,6 +558,11 @@ class _GalleryPageState extends State<GalleryPage>
   }
 
   Future<void> _uploadSelectedAssets() async {
+    if (!_isAuthenticated) {
+      _showLoginRequiredMessage();
+      return;
+    }
+
     if (_selectedAssetIds.isEmpty) {
       return;
     }
@@ -643,6 +739,11 @@ class _GalleryPageState extends State<GalleryPage>
   }
 
   Future<void> _removeSelectedFromSync() async {
+    if (!_isAuthenticated) {
+      _showLoginRequiredMessage();
+      return;
+    }
+
     if (_selectedAssetIds.isEmpty || _isProcessingSelectionAction) {
       return;
     }
@@ -721,6 +822,11 @@ class _GalleryPageState extends State<GalleryPage>
   }
 
   Future<void> _retryFailedUploads() async {
+    if (!_isAuthenticated) {
+      _showLoginRequiredMessage();
+      return;
+    }
+
     if (_isProcessingSelectionAction) {
       return;
     }
@@ -963,8 +1069,8 @@ class _GalleryPageState extends State<GalleryPage>
                                       _GalleryGlassIconButton(
                                         icon: Icons.cloud_upload,
                                         tooltip: 'Upload selected',
-                                        onPressed:
-                                            _selectedAssetIds.isEmpty ||
+                                        onPressed: !_isAuthenticated ||
+                                                _selectedAssetIds.isEmpty ||
                                                 _isProcessingSelectionAction
                                             ? null
                                             : () => _uploadSelectedAssets(),
@@ -1027,6 +1133,13 @@ class _GalleryPageState extends State<GalleryPage>
                         ),
                       ),
                     ),
+                  if (!_isAuthenticated)
+                    SliverPadding(
+                      padding: const EdgeInsets.fromLTRB(24, 12, 24, 0),
+                      sliver: SliverToBoxAdapter(
+                        child: _buildLoginReminderBanner(theme),
+                      ),
+                    ),
                   SliverPadding(
                     padding: const EdgeInsets.fromLTRB(20, 16, 20, 24),
                     sliver: _buildContent(theme),
@@ -1069,6 +1182,7 @@ class _GalleryPageState extends State<GalleryPage>
     return GallerySectionList(
       sections: _sections,
       metadataStore: _metadataStore,
+      showSyncStatus: _isAuthenticated,
       selectionMode: _selectionMode,
       selectedAssetIds: _selectedAssetIds,
       uploadingAssetIds: _uploadingAssetIds,
@@ -1081,13 +1195,43 @@ class _GalleryPageState extends State<GalleryPage>
       onAssetLongPressStart: _handleAssetLongPressStart,
       onAssetLongPressMoveUpdate: _handleAssetLongPressMoveUpdate,
       onAssetLongPressEnd: _handleAssetLongPressEnd,
-      onAssetUpload: _uploadAsset,
+      onAssetUpload: _isAuthenticated ? _uploadAsset : null,
     );
   }
 
   Widget? _buildSelectionActions(ThemeData theme) {
     if (!_selectionMode) {
       return null;
+    }
+
+    if (!_isAuthenticated) {
+      return KeyedSubtree(
+        key: const ValueKey('selection-actions'),
+        child: _GallerySectionContainer(
+          animationDuration: _microAnimationDuration,
+          animationCurve: _microAnimationCurve,
+          highlight: true,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'Sign in to manage synced photos',
+                style: theme.textTheme.titleMedium?.copyWith(
+                  fontWeight: FontWeight.w700,
+                  letterSpacing: 0.1,
+                ),
+              ),
+              const SizedBox(height: 12),
+              Text(
+                'Upload, unsync, and retry tools become available after you sign in from the Settings tab.',
+                style: theme.textTheme.bodyMedium?.copyWith(
+                  color: theme.colorScheme.onSurfaceVariant,
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
     }
 
     final canRetry = _selectedAssetIds.any(

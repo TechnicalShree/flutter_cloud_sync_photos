@@ -119,7 +119,10 @@ class _LoginViewState extends State<LoginView> {
         context,
       ).showSnackBar(const SnackBar(content: Text('Welcome back!')));
 
-      Navigator.of(context).pushReplacementNamed(HomePage.routeName);
+      Navigator.of(context).pushNamedAndRemoveUntil(
+        HomePage.routeName,
+        (_) => false,
+      );
     } catch (error) {
       if (!mounted) {
         return;

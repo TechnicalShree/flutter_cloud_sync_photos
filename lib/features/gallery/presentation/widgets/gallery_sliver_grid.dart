@@ -29,6 +29,7 @@ class GallerySliverGrid extends StatelessWidget {
     super.key,
     required this.assets,
     required this.metadataStore,
+    this.showSyncStatus = true,
     this.selectionMode = false,
     this.selectedAssetIds = const <String>{},
     this.uploadingAssetIds = const <String>{},
@@ -43,6 +44,7 @@ class GallerySliverGrid extends StatelessWidget {
 
   final List<AssetEntity> assets;
   final UploadMetadataStore metadataStore;
+  final bool showSyncStatus;
   final bool selectionMode;
   final Set<String> selectedAssetIds;
   final Set<String> uploadingAssetIds;
@@ -73,6 +75,7 @@ class GallerySliverGrid extends StatelessWidget {
               asset: asset,
               theme: theme,
               metadataStore: metadataStore,
+              showSyncStatus: showSyncStatus,
               selectionMode: selectionMode,
               isSelected: selectedAssetIds.contains(asset.id),
               isUploading: uploadingAssetIds.contains(asset.id),
@@ -107,6 +110,7 @@ class GalleryTile extends StatefulWidget {
     required this.asset,
     required this.theme,
     required this.metadataStore,
+    this.showSyncStatus = true,
     this.selectionMode = false,
     this.isSelected = false,
     this.isUploading = false,
@@ -122,6 +126,7 @@ class GalleryTile extends StatefulWidget {
   final AssetEntity asset;
   final ThemeData theme;
   final UploadMetadataStore metadataStore;
+  final bool showSyncStatus;
   final bool selectionMode;
   final bool isSelected;
   final bool isUploading;
@@ -159,312 +164,318 @@ class _GalleryTileState extends State<GalleryTile> {
 
   @override
   Widget build(BuildContext context) {
+    if (!widget.showSyncStatus) {
+      return _buildTile(context, false);
+    }
+
     return FutureBuilder<bool>(
       future: widget.metadataStore.isUploaded(widget.asset.id),
       builder: (context, snapshot) {
-        final theme = widget.theme;
-        final isUploaded = snapshot.data ?? false;
-        final uploading = widget.isUploading;
-        final effectiveOnTap = widget.onTap != null && !uploading
-            ? widget.onTap
-            : null;
-        final effectiveOnLongPress = widget.onLongPress != null && !uploading
-            ? widget.onLongPress
-            : null;
-        final showSelection =
-            widget.selectionMode && widget.showSelectionIndicator && !uploading;
+        return _buildTile(context, snapshot.data ?? false);
+      },
+    );
+  }
 
-        final bool hasInteraction =
-            effectiveOnTap != null || effectiveOnLongPress != null;
-        final double scale = _isPressed
-            ? 0.95
-            : widget.isSelected
+  Widget _buildTile(BuildContext context, bool isUploaded) {
+    final theme = widget.theme;
+    final uploading = widget.isUploading;
+    final effectiveOnTap = widget.onTap != null && !uploading
+        ? widget.onTap
+        : null;
+    final effectiveOnLongPress = widget.onLongPress != null && !uploading
+        ? widget.onLongPress
+        : null;
+    final showSelection =
+        widget.selectionMode && widget.showSelectionIndicator && !uploading;
+
+    final bool hasInteraction =
+        effectiveOnTap != null || effectiveOnLongPress != null;
+    final double scale = _isPressed
+        ? 0.95
+        : widget.isSelected
             ? 0.97
             : _isHovered
-            ? 1.02
-            : 1.0;
-        final Color borderColor = Color.alphaBlend(
-          theme.colorScheme.primary.withOpacity(
-            widget.isSelected || widget.isUploading ? 0.24 : 0.08,
-          ),
-          theme.colorScheme.outlineVariant.withOpacity(0.2),
-        );
+                ? 1.02
+                : 1.0;
+    final Color borderColor = Color.alphaBlend(
+      theme.colorScheme.primary.withOpacity(
+        widget.isSelected || widget.isUploading ? 0.24 : 0.08,
+      ),
+      theme.colorScheme.outlineVariant.withOpacity(0.2),
+    );
 
-        final Widget topRightChild;
-        if (uploading) {
-          topRightChild = const _UploadProgressDot(key: ValueKey('uploading'));
-        } else if (showSelection) {
-          topRightChild = _SelectionIndicator(
-            key: ValueKey<bool>(widget.isSelected),
-            selected: widget.isSelected,
-          );
-        } else if (!isUploaded &&
-            !widget.selectionMode &&
-            widget.onUpload != null) {
-          topRightChild = _GlassCircleButton(
-            key: const ValueKey('upload'),
-            icon: Icons.cloud_upload_outlined,
-            onPressed: widget.onUpload!,
-          );
-        } else {
-          topRightChild = const SizedBox.shrink(key: ValueKey('empty'));
-        }
+    final Widget topRightChild;
+    if (uploading) {
+      topRightChild = const _UploadProgressDot(key: ValueKey('uploading'));
+    } else if (showSelection) {
+      topRightChild = _SelectionIndicator(
+        key: ValueKey<bool>(widget.isSelected),
+        selected: widget.isSelected,
+      );
+    } else if (!isUploaded &&
+        !widget.selectionMode &&
+        widget.onUpload != null) {
+      topRightChild = _GlassCircleButton(
+        key: const ValueKey('upload'),
+        icon: Icons.cloud_upload_outlined,
+        onPressed: widget.onUpload!,
+      );
+    } else {
+      topRightChild = const SizedBox.shrink(key: ValueKey('empty'));
+    }
 
-        final Color overlayBaseColor;
-        final double overlayOpacity;
-        if (widget.isSelected) {
-          overlayBaseColor = theme.colorScheme.primary;
-          overlayOpacity = 0.28;
-        } else if (uploading) {
-          overlayBaseColor = theme.colorScheme.secondary;
-          overlayOpacity = 0.32;
-        } else if (showSelection) {
-          overlayBaseColor = theme.colorScheme.primary;
-          overlayOpacity = 0.18;
-        } else if (_isHovered) {
-          overlayBaseColor = theme.colorScheme.scrim;
-          overlayOpacity = 0.08;
-        } else {
-          overlayBaseColor = Colors.transparent;
-          overlayOpacity = 0.0;
-        }
+    final Color overlayBaseColor;
+    final double overlayOpacity;
+    if (widget.isSelected) {
+      overlayBaseColor = theme.colorScheme.primary;
+      overlayOpacity = 0.28;
+    } else if (uploading) {
+      overlayBaseColor = theme.colorScheme.secondary;
+      overlayOpacity = 0.32;
+    } else if (showSelection) {
+      overlayBaseColor = theme.colorScheme.primary;
+      overlayOpacity = 0.18;
+    } else if (_isHovered) {
+      overlayBaseColor = theme.colorScheme.scrim;
+      overlayOpacity = 0.08;
+    } else {
+      overlayBaseColor = Colors.transparent;
+      overlayOpacity = 0.0;
+    }
 
-        final Color resolvedOverlayColor = overlayOpacity <= 0
-            ? Colors.transparent
-            : overlayBaseColor.withOpacity(overlayOpacity);
+    final Color resolvedOverlayColor = overlayOpacity <= 0
+        ? Colors.transparent
+        : overlayBaseColor.withOpacity(overlayOpacity);
 
-        final double gradientOpacity = widget.selectionMode || widget.isSelected
-            ? 1
-            : uploading
+    final double gradientOpacity = widget.selectionMode || widget.isSelected
+        ? 1
+        : uploading
             ? 0.55
             : _isHovered
-            ? 0.35
-            : 0;
+                ? 0.35
+                : 0;
 
-        return MouseRegion(
-          onEnter: (_) => _handleHover(true),
-          onExit: (_) => _handleHover(false),
-          child: GestureDetector(
-            behavior: HitTestBehavior.opaque,
-            onLongPressStart: widget.onLongPressStart,
-            onLongPressMoveUpdate: widget.onLongPressMoveUpdate,
-            onLongPressEnd: widget.onLongPressEnd,
-            child: AnimatedScale(
-              scale: scale,
-              duration: _tileAnimationDuration,
-              curve: Curves.easeOutBack,
-              child: AnimatedContainer(
-                duration: _tileAnimationDuration,
-                curve: Curves.easeInOut,
-                decoration: BoxDecoration(
-                  borderRadius: BorderRadius.circular(_tileRadius + 6),
-                  gradient: LinearGradient(
-                    begin: Alignment.topLeft,
-                    end: Alignment.bottomRight,
-                    colors: [
-                      Color.alphaBlend(
-                        theme.colorScheme.primary.withOpacity(
-                          widget.isSelected ? 0.12 : 0.06,
-                        ),
-                        theme.colorScheme.surfaceContainerHigh,
-                      ),
-                      theme.colorScheme.surface,
-                    ],
+    return MouseRegion(
+      onEnter: (_) => _handleHover(true),
+      onExit: (_) => _handleHover(false),
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onLongPressStart: widget.onLongPressStart,
+        onLongPressMoveUpdate: widget.onLongPressMoveUpdate,
+        onLongPressEnd: widget.onLongPressEnd,
+        child: AnimatedScale(
+          scale: scale,
+          duration: _tileAnimationDuration,
+          curve: Curves.easeOutBack,
+          child: AnimatedContainer(
+            duration: _tileAnimationDuration,
+            curve: Curves.easeInOut,
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(_tileRadius + 6),
+              gradient: LinearGradient(
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+                colors: [
+                  Color.alphaBlend(
+                    theme.colorScheme.primary.withOpacity(
+                      widget.isSelected ? 0.12 : 0.06,
+                    ),
+                    theme.colorScheme.surfaceContainerHigh,
                   ),
-                  border: Border.all(color: borderColor, width: 1),
-                  boxShadow: [
-                    BoxShadow(
-                      color: Colors.black.withOpacity(0.12),
-                      blurRadius: 16,
-                      offset: const Offset(0, 10),
-                    ),
-                    if (widget.isSelected || uploading || _isHovered)
-                      BoxShadow(
-                        color:
-                            (widget.isSelected
-                                    ? theme.colorScheme.primary
-                                    : uploading
-                                    ? theme.colorScheme.secondary
-                                    : theme.colorScheme.primary)
-                                .withOpacity(
-                                  widget.isSelected
-                                      ? 0.24
-                                      : uploading
-                                      ? 0.18
-                                      : 0.14,
-                                ),
-                        blurRadius: 20,
-                        spreadRadius: 1,
-                      ),
-                  ],
+                  theme.colorScheme.surface,
+                ],
+              ),
+              border: Border.all(color: borderColor, width: 1),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withOpacity(0.12),
+                  blurRadius: 16,
+                  offset: const Offset(0, 10),
                 ),
-                child: ClipRRect(
-                  borderRadius: BorderRadius.circular(_tileRadius),
-                  child: Material(
-                    color: Colors.transparent,
-                    child: InkWell(
-                      splashColor: theme.colorScheme.primary.withOpacity(0.18),
-                      highlightColor: Colors.white.withOpacity(0.05),
-                      onTap: effectiveOnTap,
-                      onLongPress: effectiveOnLongPress,
-                      onHighlightChanged: hasInteraction
-                          ? _handleHighlight
-                          : null,
-                      child: Stack(
-                        fit: StackFit.expand,
-                        children: [
-                          Hero(
-                            tag: widget.asset.id,
-                            transitionOnUserGestures: true,
-                            child: Image(
-                              image: CachedThumbnailImageProvider(
-                                widget.asset,
-                                size: const ThumbnailSize.square(400),
-                              ),
-                              fit: BoxFit.cover,
-                            ),
-                          ),
-                          _GradientOverlay(
-                            theme: theme,
-                            opacity: gradientOpacity,
-                          ),
-                          Positioned.fill(
-                            child: IgnorePointer(
-                              ignoring: true,
-                              child: AnimatedContainer(
-                                duration: _tileAnimationDuration,
-                                curve: Curves.easeInOut,
-                                color: resolvedOverlayColor,
-                              ),
-                            ),
-                          ),
-                          Positioned(
-                            top: 8,
-                            left: 8,
-                            child: AnimatedSwitcher(
-                              duration: _tileAnimationDuration,
-                              switchInCurve: Curves.easeOutBack,
-                              switchOutCurve: Curves.easeInBack,
-                              transitionBuilder: (child, animation) {
-                                return FadeTransition(
-                                  opacity: animation,
-                                  child: ScaleTransition(
-                                    scale: Tween<double>(
-                                      begin: 0.7,
-                                      end: 1,
-                                    ).animate(animation),
-                                    child: child,
-                                  ),
-                                );
-                              },
-                              child: widget.asset.isFavorite
-                                  ? DecoratedBox(
-                                      key: const ValueKey('favorite'),
-                                      decoration: BoxDecoration(
-                                        color: Colors.black.withOpacity(0.45),
-                                        borderRadius: BorderRadius.circular(10),
-                                      ),
-                                      child: const Padding(
-                                        padding: EdgeInsets.symmetric(
-                                          horizontal: 6,
-                                          vertical: 4,
-                                        ),
-                                        child: Icon(
-                                          Icons.favorite,
-                                          size: 16,
-                                          color: Colors.white,
-                                        ),
-                                      ),
-                                    )
-                                  : const SizedBox(
-                                      key: ValueKey('favorite-empty'),
-                                      width: 20,
-                                      height: 20,
-                                    ),
-                            ),
-                          ),
-                          Positioned(
-                            top: 8,
-                            right: 8,
-                            child: AnimatedSwitcher(
-                              duration: _tileAnimationDuration,
-                              switchInCurve: Curves.easeOut,
-                              switchOutCurve: Curves.easeIn,
-                              layoutBuilder: (currentChild, previousChildren) {
-                                return Stack(
-                                  alignment: Alignment.center,
-                                  children: <Widget>[
-                                    ...previousChildren,
-                                    if (currentChild != null) currentChild,
-                                  ],
-                                );
-                              },
-                              transitionBuilder: (child, animation) {
-                                final fadeAnimation = CurvedAnimation(
-                                  parent: animation,
-                                  curve: Curves.easeOut,
-                                  reverseCurve: Curves.easeIn,
-                                );
-                                return FadeTransition(
-                                  opacity: fadeAnimation,
-                                  child: ScaleTransition(
-                                    scale: Tween<double>(
-                                      begin: 0.85,
-                                      end: 1,
-                                    ).animate(fadeAnimation),
-                                    child: child,
-                                  ),
-                                );
-                              },
-                              child: topRightChild,
-                            ),
-                          ),
-                          Positioned(
-                            bottom: 10,
-                            left: 10,
-                            child: AnimatedSwitcher(
-                              duration: _tileAnimationDuration,
-                              switchInCurve: Curves.easeOut,
-                              switchOutCurve: Curves.easeIn,
-                              transitionBuilder: (child, animation) {
-                                final curved = CurvedAnimation(
-                                  parent: animation,
-                                  curve: Curves.easeOut,
-                                  reverseCurve: Curves.easeIn,
-                                );
-                                return FadeTransition(
-                                  opacity: curved,
-                                  child: SlideTransition(
-                                    position: Tween<Offset>(
-                                      begin: const Offset(-0.1, 0.1),
-                                      end: Offset.zero,
-                                    ).animate(curved),
-                                    child: child,
-                                  ),
-                                );
-                              },
-                              child: isUploaded
-                                  ? const _SyncedBadge(key: ValueKey('synced'))
-                                  : const SizedBox(
-                                      key: ValueKey('synced-empty'),
-                                      width: 0,
-                                      height: 0,
-                                    ),
-                            ),
-                          ),
-                        ],
-                      ),
+                if (widget.isSelected || uploading || _isHovered)
+                  BoxShadow(
+                    color: (widget.isSelected
+                            ? theme.colorScheme.primary
+                            : uploading
+                                ? theme.colorScheme.secondary
+                                : theme.colorScheme.primary)
+                        .withOpacity(
+                      widget.isSelected
+                          ? 0.24
+                          : uploading
+                              ? 0.18
+                              : 0.14,
                     ),
+                    blurRadius: 20,
+                    spreadRadius: 1,
+                  ),
+              ],
+            ),
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(_tileRadius),
+              child: Material(
+                color: Colors.transparent,
+                child: InkWell(
+                  splashColor: theme.colorScheme.primary.withOpacity(0.18),
+                  highlightColor: Colors.white.withOpacity(0.05),
+                  onTap: effectiveOnTap,
+                  onLongPress: effectiveOnLongPress,
+                  onHighlightChanged:
+                      hasInteraction ? _handleHighlight : null,
+                  child: Stack(
+                    fit: StackFit.expand,
+                    children: [
+                      Hero(
+                        tag: widget.asset.id,
+                        transitionOnUserGestures: true,
+                        child: Image(
+                          image: CachedThumbnailImageProvider(
+                            widget.asset,
+                            size: const ThumbnailSize.square(400),
+                          ),
+                          fit: BoxFit.cover,
+                        ),
+                      ),
+                      _GradientOverlay(
+                        theme: theme,
+                        opacity: gradientOpacity,
+                      ),
+                      Positioned.fill(
+                        child: IgnorePointer(
+                          ignoring: true,
+                          child: AnimatedContainer(
+                            duration: _tileAnimationDuration,
+                            curve: Curves.easeInOut,
+                            color: resolvedOverlayColor,
+                          ),
+                        ),
+                      ),
+                      Positioned(
+                        top: 8,
+                        left: 8,
+                        child: AnimatedSwitcher(
+                          duration: _tileAnimationDuration,
+                          switchInCurve: Curves.easeOutBack,
+                          switchOutCurve: Curves.easeInBack,
+                          transitionBuilder: (child, animation) {
+                            return FadeTransition(
+                              opacity: animation,
+                              child: ScaleTransition(
+                                scale: Tween<double>(
+                                  begin: 0.7,
+                                  end: 1,
+                                ).animate(animation),
+                                child: child,
+                              ),
+                            );
+                          },
+                          child: widget.asset.isFavorite
+                              ? DecoratedBox(
+                                  key: const ValueKey('favorite'),
+                                  decoration: BoxDecoration(
+                                    color: Colors.black.withOpacity(0.45),
+                                    borderRadius: BorderRadius.circular(10),
+                                  ),
+                                  child: const Padding(
+                                    padding: EdgeInsets.symmetric(
+                                      horizontal: 6,
+                                      vertical: 4,
+                                    ),
+                                    child: Icon(
+                                      Icons.favorite,
+                                      size: 16,
+                                      color: Colors.white,
+                                    ),
+                                  ),
+                                )
+                              : const SizedBox(
+                                  key: ValueKey('favorite-empty'),
+                                  width: 20,
+                                  height: 20,
+                                ),
+                        ),
+                      ),
+                      Positioned(
+                        top: 8,
+                        right: 8,
+                        child: AnimatedSwitcher(
+                          duration: _tileAnimationDuration,
+                          switchInCurve: Curves.easeOut,
+                          switchOutCurve: Curves.easeIn,
+                          layoutBuilder: (currentChild, previousChildren) {
+                            return Stack(
+                              alignment: Alignment.center,
+                              children: <Widget>[
+                                ...previousChildren,
+                                if (currentChild != null) currentChild,
+                              ],
+                            );
+                          },
+                          transitionBuilder: (child, animation) {
+                            final fadeAnimation = CurvedAnimation(
+                              parent: animation,
+                              curve: Curves.easeOut,
+                              reverseCurve: Curves.easeIn,
+                            );
+                            return FadeTransition(
+                              opacity: fadeAnimation,
+                              child: ScaleTransition(
+                                scale: Tween<double>(
+                                  begin: 0.85,
+                                  end: 1,
+                                ).animate(fadeAnimation),
+                                child: child,
+                              ),
+                            );
+                          },
+                          child: topRightChild,
+                        ),
+                      ),
+                      Positioned(
+                        bottom: 10,
+                        left: 10,
+                        child: AnimatedSwitcher(
+                          duration: _tileAnimationDuration,
+                          switchInCurve: Curves.easeOut,
+                          switchOutCurve: Curves.easeIn,
+                          transitionBuilder: (child, animation) {
+                            final curved = CurvedAnimation(
+                              parent: animation,
+                              curve: Curves.easeOut,
+                              reverseCurve: Curves.easeIn,
+                            );
+                            return FadeTransition(
+                              opacity: curved,
+                              child: SlideTransition(
+                                position: Tween<Offset>(
+                                  begin: const Offset(-0.1, 0.1),
+                                  end: Offset.zero,
+                                ).animate(curved),
+                                child: child,
+                              ),
+                            );
+                          },
+                          child: isUploaded
+                              ? const _SyncedBadge(key: ValueKey('synced'))
+                              : const SizedBox(
+                                  key: ValueKey('synced-empty'),
+                                  width: 0,
+                                  height: 0,
+                                ),
+                        ),
+                      ),
+                    ],
                   ),
                 ),
               ),
             ),
           ),
-        );
-      },
+        ),
+      ),
     );
   }
 }
+
 
 class _GradientOverlay extends StatelessWidget {
   const _GradientOverlay({required this.theme, required this.opacity});
