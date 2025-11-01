@@ -107,14 +107,20 @@ class AuthService {
     return status;
   }
 
-  Future<bool> verifySession() async {
-    final storedCookies = await _sessionManager.loadCookies();
-    if (storedCookies.isEmpty) {
+  Future<bool> verifySession({bool forceReload = false}) async {
+    if (forceReload || _sessionCookies.isEmpty) {
+      final storedCookies = await _sessionManager.loadCookies();
+      if (storedCookies.isEmpty) {
+        return false;
+      }
+      _sessionCookies = storedCookies;
+    }
+
+    if (_sessionCookies.isEmpty) {
       return false;
     }
 
-    _sessionCookies = storedCookies;
-    _apiClient.setDefaultCookies(storedCookies, merge: false);
+    _apiClient.setDefaultCookies(_sessionCookies, merge: false);
 
     try {
       await _apiClient.sendToEndpoint<Map<String, dynamic>>(
